@@ -17,14 +17,49 @@ const navItems = [
   { path: '/sales', label: 'Sales', icon: TrendingUp },
   { path: '/payments', label: 'Payments', icon: CreditCard },
   { path: '/stock', label: 'Stock', icon: Warehouse },
+];
+
+const bottomItems = [
   { path: '/team', label: 'Team', icon: UsersRound },
   { path: '/settings', label: 'Settings', icon: Settings },
   { path: '/profile', label: 'Profile', icon: UserCircle },
 ];
 
-export default function Sidebar({ collapsed, setCollapsed, isMobile = false, onClose }) {
+function NavLink({ item, collapsed, isMobile, onClose }) {
   const location = useLocation();
+  const isActive = location.pathname === item.path;
+  return (
+    <Link key={item.path} to={item.path} onClick={isMobile ? onClose : undefined}>
+      <motion.div
+        whileHover={{ x: 2 }}
+        title={collapsed && !isMobile ? item.label : undefined}
+        className={cn(
+          'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group',
+          collapsed && !isMobile ? 'justify-center' : '',
+          isActive
+            ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-md'
+            : 'text-sidebar-foreground hover:bg-sidebar-accent'
+        )}
+      >
+        <item.icon className={cn('w-5 h-5 flex-shrink-0', isActive ? '' : 'group-hover:text-sidebar-primary')} />
+        <AnimatePresence>
+          {(!collapsed || isMobile) && (
+            <motion.span
+              initial={{ opacity: 0, width: 0 }}
+              animate={{ opacity: 1, width: 'auto' }}
+              exit={{ opacity: 0, width: 0 }}
+              className="text-sm font-medium whitespace-nowrap overflow-hidden"
+            >
+              {item.label}
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </motion.div>
+    </Link>
+  );
+}
 
+export default function Sidebar({ collapsed, setCollapsed, isMobile = false, onClose }) {
   return (
     <motion.aside
       animate={{ width: collapsed && !isMobile ? 72 : 260 }}
@@ -58,48 +93,19 @@ export default function Sidebar({ collapsed, setCollapsed, isMobile = false, onC
         )}
       </div>
 
-      {/* Nav Items */}
+      {/* Main Nav Items */}
       <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
-        {navItems.map((item, idx) => {
-          const isActive = location.pathname === item.path;
-          // Add a subtle divider before Team
-          const showDivider = item.path === '/team';
-          return (
-            <div key={item.path}>
-              {showDivider && !collapsed && !isMobile && (
-                <div className="my-2 border-t border-sidebar-border opacity-40" />
-              )}
-              <Link to={item.path} onClick={isMobile ? onClose : undefined}>
-                <motion.div
-                  whileHover={{ x: 2 }}
-                  title={collapsed && !isMobile ? item.label : undefined}
-                  className={cn(
-                    'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group',
-                    collapsed && !isMobile ? 'justify-center' : '',
-                    isActive
-                      ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-md'
-                      : 'text-sidebar-foreground hover:bg-sidebar-accent'
-                  )}
-                >
-                  <item.icon className={cn('w-5 h-5 flex-shrink-0', isActive ? '' : 'group-hover:text-sidebar-primary')} />
-                  <AnimatePresence>
-                    {(!collapsed || isMobile) && (
-                      <motion.span
-                        initial={{ opacity: 0, width: 0 }}
-                        animate={{ opacity: 1, width: 'auto' }}
-                        exit={{ opacity: 0, width: 0 }}
-                        className="text-sm font-medium whitespace-nowrap overflow-hidden"
-                      >
-                        {item.label}
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
-                </motion.div>
-              </Link>
-            </div>
-          );
-        })}
+        {navItems.map(item => (
+          <NavLink key={item.path} item={item} collapsed={collapsed} isMobile={isMobile} onClose={onClose} />
+        ))}
       </nav>
+
+      {/* Bottom items: Team, Settings, Profile */}
+      <div className="py-2 px-2 space-y-0.5 border-t border-sidebar-border flex-shrink-0">
+        {bottomItems.map(item => (
+          <NavLink key={item.path} item={item} collapsed={collapsed} isMobile={isMobile} onClose={onClose} />
+        ))}
+      </div>
 
       {/* Collapse Toggle - desktop only */}
       {!isMobile && (

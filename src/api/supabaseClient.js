@@ -3,19 +3,37 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://aassjlvbyirldptytsyn.supabase.co';
 const supabaseKey = import.meta.env.VITE_SUPABASE_KEY || 'sb_publishable_gtLYA9DIAKUZjSnA8T_2yw_UfQqx-rD';
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false,
+    storageKey: 'nutrimeth-auth',
+  },
+});
+
+// ─── Creator context (set at login) ───────────────────────────────────────
+let _creatorId = null;
+let _creatorName = null;
+let _creatorEmail = null;
+
+export function setCreatorContext({ id, name, email }) {
+  _creatorId = id || null;
+  _creatorName = name || null;
+  _creatorEmail = email || null;
+}
+
+export function getCreatorContext() {
+  return { creator_id: _creatorId, creator_name: _creatorName, creator_email: _creatorEmail };
+}
 
 // ─── Generic entity helpers ────────────────────────────────────────────────
-
 function makeEntity(table) {
   return {
-    /** List all rows, optionally filtered by creator_id */
     async list(filters = {}) {
       let q = supabase.from(table).select('*').order('created_at', { ascending: false });
       for (const [col, val] of Object.entries(filters)) {
-        if (val !== undefined && val !== null && val !== '') {
-          q = q.eq(col, val);
-        }
+        if (val !== undefined && val !== null && val !== '') q = q.eq(col, val);
       }
       const { data, error } = await q;
       if (error) throw error;
@@ -28,25 +46,12 @@ function makeEntity(table) {
       return normalise(data);
     },
 
-    /** Create a new row — automatically attaches creator info from current session */
     async create(payload) {
       const clean = stripReadonly(payload);
-      // Inject creator info if not already set
-      if (!clean.creator_id) {
-        const { data: { user } } = await supabase.auth.getUser().catch(() => ({ data: { user: null } }));
-        if (user) {
-          clean.creator_id = user.id;
-          // Try to get full name from user_profiles
-          const { data: profile } = await supabase
-            .from('user_profiles')
-            .select('full_name, email')
-            .eq('id', user.id)
-            .single()
-            .catch(() => ({ data: null }));
-          clean.creator_name = profile?.full_name || user.user_metadata?.full_name || user.email?.split('@')[0] || 'User';
-          clean.creator_email = profile?.email || user.email || '';
-        }
-      }
+      // Inject creator fields if not already present
+      if (_creatorId && !clean.creator_id) clean.creator_id = _creatorId;
+      if (_creatorName && !clean.creator_name) clean.creator_name = _creatorName;
+      if (_creatorEmail && !clean.creator_email) clean.creator_email = _creatorEmail;
       const { data, error } = await supabase.from(table).insert([clean]).select().single();
       if (error) throw error;
       return normalise(data);
@@ -89,7 +94,6 @@ function normalise(row) {
 }
 
 // ─── Entity map ───────────────────────────────────────────────────────────
-
 export const db = {
   Client: makeEntity('clients'),
   Supplier: makeEntity('suppliers'),
@@ -103,7 +107,6 @@ export const db = {
 };
 
 // ─── File upload via Supabase Storage ─────────────────────────────────────
-
 export async function uploadFile(file, bucket = 'uploads') {
   const ext = file.name.split('.').pop();
   const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;

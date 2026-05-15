@@ -1,102 +1,160 @@
--- =====================================================================
--- NUTRIMETH BMS — Auth, Team & Creator Migration
--- Run this in Supabase SQL Editor AFTER the base schema
--- =====================================================================
+-- ============================================================
+-- NUTRIMETH BMS - Auth & Creator Fields Migration
+-- Run this in your Supabase SQL Editor
+-- ============================================================
 
--- ─── 1. user_profiles table ──────────────────────────────────────────
+-- 1. Create user_profiles table (synced with auth.users)
 create table if not exists user_profiles (
   id uuid primary key references auth.users(id) on delete cascade,
-  full_name text,
   email text,
+  full_name text,
   avatar_url text,
+  role text default 'member',
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
 
--- Auto-create profile on new user signup
-create or replace function handle_new_user()
-returns trigger language plpgsql security definer as $$
-begin
-  insert into public.user_profiles (id, full_name, email, created_at)
-  values (
-    new.id,
-    coalesce(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
-    new.email,
-    now()
-  )
-  on conflict (id) do update set
-    full_name = coalesce(excluded.full_name, user_profiles.full_name),
-    email = excluded.email;
-  return new;
-end;
-$$;
+-- Enable RLS on user_profiles
+alter table user_profiles enable row level security;
 
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute procedure handle_new_user();
+-- Allow authenticated users to read all profiles (needed for team page & creator dropdown)
+create policy if not exists "Authenticated users can view all profiles"
+  on user_profiles for select
+  to authenticated
+  using (true);
 
--- ─── 2. Add creator columns to all tables (safe: only if missing) ────
+-- Allow users to insert/update their own profile
+create policy if not exists "Users can insert own profile"
+  on user_profiles for insert
+  to authenticated
+  with check (auth.uid() = id);
 
--- clients
-alter table clients add column if not exists creator_id uuid references auth.users(id) on delete set null;
-alter table clients add column if not exists creator_name text;
-alter table clients add column if not exists creator_email text;
+create policy if not exists "Users can update own profile"
+  on user_profiles for update
+  to authenticated
+  using (auth.uid() = id);
 
--- suppliers
-alter table suppliers add column if not exists creator_id uuid references auth.users(id) on delete set null;
-alter table suppliers add column if not exists creator_name text;
-alter table suppliers add column if not exists creator_email text;
+-- Allow users to delete other profiles (team management) - only authenticated
+create policy if not exists "Authenticated users can delete profiles"
+  on user_profiles for delete
+  to authenticated
+  using (true);
 
--- products
-alter table products add column if not exists creator_id uuid references auth.users(id) on delete set null;
-alter table products add column if not exists creator_name text;
-alter table products add column if not exists creator_email text;
+-- 2. Add creator fields to all business tables
+-- (Safe: uses IF NOT EXISTS equivalent via DO block)
 
--- sales
-alter table sales add column if not exists creator_id uuid references auth.users(id) on delete set null;
-alter table sales add column if not exists creator_name text;
-alter table sales add column if not exists creator_email text;
+DO $$
+BEGIN
+  -- clients
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='clients' AND column_name='creator_id') THEN
+    ALTER TABLE clients ADD COLUMN creator_id uuid;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='clients' AND column_name='creator_name') THEN
+    ALTER TABLE clients ADD COLUMN creator_name text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='clients' AND column_name='creator_email') THEN
+    ALTER TABLE clients ADD COLUMN creator_email text;
+  END IF;
 
--- purchases
-alter table purchases add column if not exists creator_id uuid references auth.users(id) on delete set null;
-alter table purchases add column if not exists creator_name text;
-alter table purchases add column if not exists creator_email text;
+  -- suppliers
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='suppliers' AND column_name='creator_id') THEN
+    ALTER TABLE suppliers ADD COLUMN creator_id uuid;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='suppliers' AND column_name='creator_name') THEN
+    ALTER TABLE suppliers ADD COLUMN creator_name text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='suppliers' AND column_name='creator_email') THEN
+    ALTER TABLE suppliers ADD COLUMN creator_email text;
+  END IF;
 
--- expenses
-alter table expenses add column if not exists creator_id uuid references auth.users(id) on delete set null;
-alter table expenses add column if not exists creator_name text;
-alter table expenses add column if not exists creator_email text;
+  -- products
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='creator_id') THEN
+    ALTER TABLE products ADD COLUMN creator_id uuid;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='creator_name') THEN
+    ALTER TABLE products ADD COLUMN creator_name text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='creator_email') THEN
+    ALTER TABLE products ADD COLUMN creator_email text;
+  END IF;
 
--- expense_types
-alter table expense_types add column if not exists creator_id uuid references auth.users(id) on delete set null;
-alter table expense_types add column if not exists creator_name text;
-alter table expense_types add column if not exists creator_email text;
+  -- sales
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales' AND column_name='creator_id') THEN
+    ALTER TABLE sales ADD COLUMN creator_id uuid;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales' AND column_name='creator_name') THEN
+    ALTER TABLE sales ADD COLUMN creator_name text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sales' AND column_name='creator_email') THEN
+    ALTER TABLE sales ADD COLUMN creator_email text;
+  END IF;
 
--- purchase_types
-alter table purchase_types add column if not exists creator_id uuid references auth.users(id) on delete set null;
-alter table purchase_types add column if not exists creator_name text;
-alter table purchase_types add column if not exists creator_email text;
+  -- purchases
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='purchases' AND column_name='creator_id') THEN
+    ALTER TABLE purchases ADD COLUMN creator_id uuid;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='purchases' AND column_name='creator_name') THEN
+    ALTER TABLE purchases ADD COLUMN creator_name text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='purchases' AND column_name='creator_email') THEN
+    ALTER TABLE purchases ADD COLUMN creator_email text;
+  END IF;
 
--- ─── 3. Disable RLS (app uses anon key; team data is shared) ─────────
-alter table user_profiles disable row level security;
+  -- expenses
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='expenses' AND column_name='creator_id') THEN
+    ALTER TABLE expenses ADD COLUMN creator_id uuid;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='expenses' AND column_name='creator_name') THEN
+    ALTER TABLE expenses ADD COLUMN creator_name text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='expenses' AND column_name='creator_email') THEN
+    ALTER TABLE expenses ADD COLUMN creator_email text;
+  END IF;
+
+  -- expense_types
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='expense_types' AND column_name='creator_id') THEN
+    ALTER TABLE expense_types ADD COLUMN creator_id uuid;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='expense_types' AND column_name='creator_name') THEN
+    ALTER TABLE expense_types ADD COLUMN creator_name text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='expense_types' AND column_name='creator_email') THEN
+    ALTER TABLE expense_types ADD COLUMN creator_email text;
+  END IF;
+
+  -- purchase_types
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='purchase_types' AND column_name='creator_id') THEN
+    ALTER TABLE purchase_types ADD COLUMN creator_id uuid;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='purchase_types' AND column_name='creator_name') THEN
+    ALTER TABLE purchase_types ADD COLUMN creator_name text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='purchase_types' AND column_name='creator_email') THEN
+    ALTER TABLE purchase_types ADD COLUMN creator_email text;
+  END IF;
+
+END $$;
+
+-- 3. Keep all business tables with RLS disabled (shared team system)
 alter table clients disable row level security;
 alter table suppliers disable row level security;
 alter table products disable row level security;
-alter table expense_types disable row level security;
-alter table purchase_types disable row level security;
 alter table sales disable row level security;
 alter table purchases disable row level security;
 alter table expenses disable row level security;
+alter table expense_types disable row level security;
+alter table purchase_types disable row level security;
 alter table company_settings disable row level security;
 
--- ─── 4. Enable Realtime for user_profiles ────────────────────────────
+-- 4. Realtime for user_profiles (team page live updates)
 alter publication supabase_realtime add table user_profiles;
 
--- ─── 5. Indexes ───────────────────────────────────────────────────────
-create index if not exists idx_clients_creator_id on clients(creator_id);
-create index if not exists idx_suppliers_creator_id on suppliers(creator_id);
-create index if not exists idx_products_creator_id on products(creator_id);
-create index if not exists idx_sales_creator_id on sales(creator_id);
-create index if not exists idx_purchases_creator_id on purchases(creator_id);
-create index if not exists idx_expenses_creator_id on expenses(creator_id);
+-- 5. Index for creator filtering
+create index if not exists idx_sales_creator_name on sales(creator_name);
+create index if not exists idx_purchases_creator_name on purchases(creator_name);
+create index if not exists idx_expenses_creator_name on expenses(creator_name);
+create index if not exists idx_clients_creator_name on clients(creator_name);
+create index if not exists idx_suppliers_creator_name on suppliers(creator_name);
+create index if not exists idx_products_creator_name on products(creator_name);
+
+-- Done! Run supabase_schema.sql first if tables don't exist yet.

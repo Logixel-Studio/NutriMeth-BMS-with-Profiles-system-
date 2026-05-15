@@ -10,10 +10,10 @@ import StatusBadge from '@/components/shared/StatusBadge';
 import ConfirmDialog from '@/components/shared/ConfirmDialog';
 import DueDateBadge from '@/components/shared/DueDateBadge';
 import SupplierForm from '@/components/suppliers/SupplierForm';
-import CreatorBadge from '@/components/shared/CreatorBadge';
+import CreatedByBadge from '@/components/shared/CreatedByBadge';
 import CreatorFilter from '@/components/shared/CreatorFilter';
 import { Button } from '@/components/ui/button';
-import { Truck, UserCheck, Clock, ShoppingCart, Plus, Pencil, Trash2, MapPin } from 'lucide-react';
+import { Truck, UserCheck, Clock, ShoppingCart, Plus, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function Suppliers() {
@@ -28,17 +28,16 @@ export default function Suppliers() {
   const { data: purchases = [] } = useQuery({ queryKey: ['purchases'], queryFn: () => db.Purchase.list() });
 
   const deleteMut = useMutation({
-    mutationFn: (id) => db.Supplier.delete(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['suppliers'] }); toast.success('Supplier deleted'); setDeleteId(null); }
+    mutationFn: async (id) => { await db.Supplier.delete(id); return id; },
+    onSuccess: (deletedId) => { qc.setQueryData(['suppliers'], (old) => (old || []).filter(s => s.id !== deletedId)); toast.success('Supplier deleted'); setDeleteId(null); },
+    onError: () => qc.invalidateQueries({ queryKey: ['suppliers'] })
   });
-
-  const filteredSuppliers = creatorFilter
-    ? suppliers.filter(s => s.creator_id === creatorFilter)
-    : suppliers;
 
   const activeSuppliers = suppliers.filter(s => s.status === 'active').length;
   const pendingPayments = purchases.filter(p => p.payment_status !== 'paid').reduce((a, p) => a + ((p.total || 0) - (p.paid_amount || 0)), 0);
   const totalPurchases = purchases.reduce((a, p) => a + (p.total || 0), 0);
+
+  const filtered = creatorFilter ? suppliers.filter(s => s.creator_name === creatorFilter) : suppliers;
 
   const columns = [
     { key: 'name', label: 'Name', render: v => <span className="font-medium">{v}</span> },
@@ -60,24 +59,6 @@ export default function Suppliers() {
     const supplierPurchases = purchases.filter(p => p.supplier_id === row.id);
     return (
       <div className="space-y-3">
-        {/* Address fix — explicitly rendered */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-          {row.address && (
-            <div className="flex items-start gap-1.5">
-              <MapPin className="w-3.5 h-3.5 text-primary mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-xs text-muted-foreground">Address</p>
-                <p className="font-medium">{row.address}</p>
-              </div>
-            </div>
-          )}
-          {row.phone && (
-            <div className="text-sm">
-              <p className="text-xs text-muted-foreground">Phone</p>
-              <p className="font-medium">{row.phone}</p>
-            </div>
-          )}
-        </div>
         <p className="text-sm"><strong>Description:</strong> {row.description || '—'}</p>
         <div>
           <p className="text-sm font-medium mb-2">Purchase History ({supplierPurchases.length})</p>
@@ -94,12 +75,7 @@ export default function Suppliers() {
             </div>
           )}
         </div>
-        <CreatorBadge
-          creatorName={row.creator_name}
-          creatorEmail={row.creator_email}
-          createdAt={row.created_at}
-          updatedAt={row.updated_at}
-        />
+        <CreatedByBadge row={row} />
       </div>
     );
   };
@@ -119,11 +95,11 @@ export default function Suppliers() {
         <SummaryCard title="Total Purchases" value={formatCurrency(totalPurchases)} icon={ShoppingCart} delay={0.15} />
       </div>
 
-      <div className="flex justify-end mb-3">
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
         <CreatorFilter value={creatorFilter} onChange={setCreatorFilter} />
       </div>
 
-      <DataTable columns={columns} data={filteredSuppliers} isLoading={isLoading} searchKey="name" expandedContent={expandedContent} />
+      <DataTable columns={columns} data={filtered} isLoading={isLoading} searchKey="name" expandedContent={expandedContent} />
 
       <SupplierForm open={formOpen} onClose={() => { setFormOpen(false); setEditing(null); }} editing={editing} />
       <ConfirmDialog open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={() => deleteMut.mutate(deleteId)} />

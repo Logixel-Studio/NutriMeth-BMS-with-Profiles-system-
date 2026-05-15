@@ -10,7 +10,7 @@ import StatusBadge from '@/components/shared/StatusBadge';
 import DueDateBadge from '@/components/shared/DueDateBadge';
 import ConfirmDialog from '@/components/shared/ConfirmDialog';
 import SaleForm from '@/components/sales/SaleForm';
-import CreatorBadge from '@/components/shared/CreatorBadge';
+import CreatedByBadge from '@/components/shared/CreatedByBadge';
 import CreatorFilter from '@/components/shared/CreatorFilter';
 import { Button } from '@/components/ui/button';
 import { TrendingUp, DollarSign, CheckCircle, XCircle, AlertCircle, Plus, Pencil, Trash2, BarChart3 } from 'lucide-react';
@@ -37,25 +37,35 @@ export default function Sales() {
           const newQty = (product.stock_qty || 0) + (sale.qty || 0);
           let status = newQty === 0 ? 'out_of_stock' : newQty <= 10 ? 'low_stock' : 'in_stock';
           await db.Product.update(product.id, { stock_qty: newQty, status });
+          // Optimistically update products cache
+          qc.setQueryData(['products'], (old) =>
+            (old || []).map(p => p.id === product.id ? { ...p, stock_qty: newQty, status } : p)
+          );
         }
       }
-      return db.Sale.delete(id);
+      await db.Sale.delete(id);
+      return id;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['sales'] });
-      qc.invalidateQueries({ queryKey: ['products'] });
+    onSuccess: (deletedId) => {
+      // Optimistically remove from cache — avoids full refetch and rerender storm
+      qc.setQueryData(['sales'], (old) => (old || []).filter(s => s.id !== deletedId));
       toast.success('Sale deleted, stock restored');
       setDeleteId(null);
-    }
+    },
+    onError: () => {
+      // On error, invalidate to get correct server state
+      qc.invalidateQueries({ queryKey: ['sales'] });
+      qc.invalidateQueries({ queryKey: ['products'] });
+    },
   });
-
-  const filteredSales = creatorFilter ? sales.filter(s => s.creator_id === creatorFilter) : sales;
 
   const totalRevenue = sales.reduce((a, s) => a + (s.total || 0), 0);
   const totalProfit = sales.reduce((a, s) => a + (s.profit || 0), 0);
   const paidSales = sales.filter(s => s.payment_status === 'paid').length;
   const unpaidSales = sales.filter(s => s.payment_status === 'unpaid').length;
   const partialSales = sales.filter(s => s.payment_status === 'partial').length;
+
+  const filtered = creatorFilter ? sales.filter(s => s.creator_name === creatorFilter) : sales;
 
   const columns = [
     { key: 'client_name', label: 'Client', render: v => <span className="font-medium">{v}</span> },
@@ -81,7 +91,7 @@ export default function Sales() {
   ];
 
   const expandedContent = (row) => (
-    <div>
+    <div className="space-y-3">
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 text-sm">
         <div><p className="text-xs text-muted-foreground">Client</p><p className="font-medium">{row.client_name}</p></div>
         <div><p className="text-xs text-muted-foreground">Product</p><p className="font-medium">{row.product_name}</p></div>
@@ -97,7 +107,7 @@ export default function Sales() {
         {row.due_date && row.payment_status !== 'paid' && <div><p className="text-xs text-muted-foreground">Time Left</p><DueDateBadge dueDate={row.due_date} paymentStatus={row.payment_status} /></div>}
         {row.description && <div className="col-span-2 lg:col-span-4"><p className="text-xs text-muted-foreground">Description</p><p>{row.description}</p></div>}
       </div>
-      <CreatorBadge creatorName={row.creator_name} creatorEmail={row.creator_email} createdAt={row.created_at} updatedAt={row.updated_at} />
+      <CreatedByBadge row={row} />
     </div>
   );
 
@@ -118,11 +128,11 @@ export default function Sales() {
         <SummaryCard title="Partial" value={formatNumber(partialSales)} icon={AlertCircle} delay={0.25} />
       </div>
 
-      <div className="flex justify-end mb-3">
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
         <CreatorFilter value={creatorFilter} onChange={setCreatorFilter} />
       </div>
 
-      <DataTable columns={columns} data={filteredSales} isLoading={isLoading} searchKey="client_name" expandedContent={expandedContent} />
+      <DataTable columns={columns} data={filtered} isLoading={isLoading} searchKey="client_name" expandedContent={expandedContent} />
 
       <SaleForm open={formOpen} onClose={() => { setFormOpen(false); setEditing(null); }} editing={editing} clients={clients} products={products} />
       <ConfirmDialog open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={() => deleteMut.mutate(deleteId)} />

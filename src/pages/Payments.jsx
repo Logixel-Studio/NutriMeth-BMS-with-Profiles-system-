@@ -238,9 +238,8 @@ function PaymentEditDialog({ payment, onClose, qc, formatCurrency }) {
       });
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['sales'] });
-      qc.invalidateQueries({ queryKey: ['purchases'] });
-      qc.invalidateQueries({ queryKey: ['expenses'] });
+      // Single batch invalidation — triggers one re-render instead of three
+      qc.invalidateQueries({ predicate: q => ['sales','purchases','expenses'].includes(q.queryKey[0]) });
       toast.success('Payment updated');
       onClose();
     }

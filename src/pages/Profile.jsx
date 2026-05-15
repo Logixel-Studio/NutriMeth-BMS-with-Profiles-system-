@@ -7,16 +7,61 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { UserCircle, Mail, Shield, Save, CalendarDays } from 'lucide-react';
+import { UserCircle, Mail, Shield, Calendar, Loader2, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import { formatDate } from '@/lib/formatters';
 
 export default function Profile() {
-  const { user, profile, displayName, refreshProfile } = useAuth();
-  const [fullName, setFullName] = useState(profile?.full_name || displayName || '');
-  const [avatarUrl, setAvatarUrl] = useState(profile?.avatar_url || user?.user_metadata?.avatar_url || '');
+  const { user, profile, displayName, fetchProfile } = useAuth();
+  const [editName, setEditName] = useState('');
+  const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  const currentName = profile?.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User';
+  const currentAvatar = profile?.avatar_url || user?.user_metadata?.avatar_url || '';
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const { file_url } = await uploadFile(file, 'avatars');
+      // Update DB only (avoid triggering auth state change loop)
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({ avatar_url: file_url })
+        .eq('id', user.id);
+      if (error) throw error;
+      // Refresh profile state directly without triggering auth cycle
+      if (user) await fetchProfile(user.id);
+      toast.success('Profile photo updated');
+    } catch (err) {
+      toast.error('Upload failed: ' + err.message);
+    }
+    setUploading(false);
+  };
+
+  const handleSaveName = async () => {
+    if (!editName.trim()) { toast.error('Name cannot be empty'); return; }
+    setSaving(true);
+    try {
+      // Update DB profile — single operation, no auth metadata update to avoid loops
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({ full_name: editName.trim() })
+        .eq('id', user.id);
+      if (error) throw error;
+      // Refresh profile state
+      if (user) await fetchProfile(user.id);
+      setEditing(false);
+      toast.success('Name updated');
+    } catch (err) {
+      toast.error(err.message);
+    }
+    setSaving(false);
+  };
 
   if (!user) return (
     <div className="flex items-center justify-center h-64">
@@ -24,43 +69,9 @@ export default function Profile() {
     </div>
   );
 
-  const initials = (fullName || user.email || 'U').charAt(0).toUpperCase();
-
-  const handleUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const { file_url } = await uploadFile(file, 'avatars');
-      setAvatarUrl(file_url);
-      await supabase.auth.updateUser({ data: { avatar_url: file_url } });
-      await supabase.from('user_profiles').update({ avatar_url: file_url, updated_at: new Date().toISOString() }).eq('id', user.id);
-      toast.success('Profile photo updated');
-      refreshProfile?.();
-    } catch (err) {
-      toast.error('Upload failed: ' + err.message);
-    }
-  };
-
-  const handleSave = async () => {
-    if (!fullName.trim()) { toast.error('Name cannot be empty'); return; }
-    setSaving(true);
-    try {
-      await supabase.auth.updateUser({ data: { full_name: fullName } });
-      await supabase.from('user_profiles').update({
-        full_name: fullName,
-        updated_at: new Date().toISOString()
-      }).eq('id', user.id);
-      toast.success('Profile updated');
-      refreshProfile?.();
-    } catch (err) {
-      toast.error('Failed to update: ' + err.message);
-    }
-    setSaving(false);
-  };
-
   return (
     <div>
-      <PageHeader title="My Profile" description="Manage your personal account information" />
+      <PageHeader title="Profile" description="Your personal account information" />
 
       <div className="max-w-2xl mx-auto space-y-6">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
@@ -70,16 +81,25 @@ export default function Profile() {
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="flex items-center gap-6">
-                <Avatar className="w-20 h-20">
-                  <AvatarImage src={avatarUrl} />
-                  <AvatarFallback className="text-2xl bg-primary/10 text-primary">{initials}</AvatarFallback>
-                </Avatar>
-                <div className="flex-1">
-                  <p className="text-lg font-semibold">{fullName || user.email}</p>
+                <div className="relative">
+                  <Avatar className="w-20 h-20">
+                    <AvatarImage src={currentAvatar} />
+                    <AvatarFallback className="text-2xl bg-primary/10 text-primary">
+                      {currentName?.charAt(0)?.toUpperCase() || 'U'}
+                    </AvatarFallback>
+                  </Avatar>
+                  {uploading && (
+                    <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center">
+                      <Loader2 className="w-5 h-5 animate-spin text-white" />
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <p className="text-lg font-semibold">{currentName}</p>
                   <p className="text-sm text-muted-foreground">{user.email}</p>
-                  <label className="mt-2 inline-block cursor-pointer">
-                    <span className="text-xs text-primary hover:underline">Change photo</span>
-                    <input type="file" accept="image/*" onChange={handleUpload} className="hidden" />
+                  <label className="cursor-pointer text-xs text-primary hover:underline">
+                    Change photo
+                    <input type="file" accept="image/*" onChange={handleUpload} className="hidden" disabled={uploading} />
                   </label>
                 </div>
               </div>
@@ -94,18 +114,25 @@ export default function Profile() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <Label>Full Name</Label>
-                <Input
-                  value={fullName}
-                  onChange={e => setFullName(e.target.value)}
-                  placeholder="Your full name"
-                  className="mt-1"
-                />
+                <Label>Display Name</Label>
+                {editing ? (
+                  <div className="flex gap-2 mt-1">
+                    <Input value={editName} onChange={e => setEditName(e.target.value)} autoFocus />
+                    <Button size="sm" onClick={handleSaveName} disabled={saving}>
+                      {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2 mt-1">
+                    <Input value={currentName} readOnly className="bg-muted" />
+                    {/* <Button size="sm" variant="outline" onClick={() => { setEditName(currentName); setEditing(true); }}>Edit</Button> */}
+                  </div>
+                )}
               </div>
               <div>
                 <Label>Email</Label>
-                <Input value={user.email || ''} readOnly className="bg-muted mt-1" />
-                <p className="text-xs text-muted-foreground mt-1">Email cannot be changed here.</p>
+                <Input value={user.email || ''} readOnly className="mt-1 bg-muted" />
               </div>
               <div>
                 <Label>Role</Label>
@@ -114,21 +141,15 @@ export default function Profile() {
                   <span className="text-sm font-medium capitalize">Team Member</span>
                 </div>
               </div>
-              {user.created_at && (
+              {profile?.created_at && (
                 <div>
                   <Label>Member Since</Label>
                   <div className="flex items-center gap-2 mt-1">
-                    <CalendarDays className="w-4 h-4 text-primary" />
-                    <span className="text-sm">{formatDate(user.created_at)}</span>
+                    <Calendar className="w-4 h-4 text-muted-foreground" />
+                    <span className="text-sm">{formatDate(profile.created_at)}</span>
                   </div>
                 </div>
               )}
-              <div className="flex justify-end pt-2">
-                <Button onClick={handleSave} disabled={saving} className="gap-2">
-                  <Save className="w-4 h-4" />
-                  {saving ? 'Saving...' : 'Save Changes'}
-                </Button>
-              </div>
             </CardContent>
           </Card>
         </motion.div>

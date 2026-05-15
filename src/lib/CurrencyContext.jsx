@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { db } from '@/api/supabaseClient';
 
 const CurrencyContext = createContext({
@@ -20,7 +20,7 @@ export function CurrencyProvider({ children }) {
         setCurrency(list[0].currency || 'PKR');
       }
     } catch {}
-  }, []);
+  }, []); // stable — no deps change
 
   useEffect(() => { loadSettings(); }, [loadSettings]);
 
@@ -29,8 +29,16 @@ export function CurrencyProvider({ children }) {
     return `${symbol}${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }, [symbol]);
 
+  // Memoize context value so consumers don't re-render unless symbol/currency actually changes
+  const value = useMemo(() => ({
+    symbol,
+    currency,
+    formatCurrency,
+    refreshSettings: loadSettings,
+  }), [symbol, currency, formatCurrency, loadSettings]);
+
   return (
-    <CurrencyContext.Provider value={{ symbol, currency, formatCurrency, refreshSettings: loadSettings }}>
+    <CurrencyContext.Provider value={value}>
       {children}
     </CurrencyContext.Provider>
   );

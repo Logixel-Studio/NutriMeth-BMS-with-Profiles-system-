@@ -10,7 +10,7 @@ import StatusBadge from '@/components/shared/StatusBadge';
 import ConfirmDialog from '@/components/shared/ConfirmDialog';
 import ProductForm from '@/components/products/ProductForm';
 import StockUpdateForm from '@/components/products/StockUpdateForm';
-import CreatorBadge from '@/components/shared/CreatorBadge';
+import CreatedByBadge from '@/components/shared/CreatedByBadge';
 import CreatorFilter from '@/components/shared/CreatorFilter';
 import { Button } from '@/components/ui/button';
 import { Package, DollarSign, CheckCircle, AlertTriangle, XCircle, Plus, Pencil, Trash2, BarChart3 } from 'lucide-react';
@@ -28,16 +28,17 @@ export default function Products() {
   const { data: products = [], isLoading } = useQuery({ queryKey: ['products'], queryFn: () => db.Product.list() });
 
   const deleteMut = useMutation({
-    mutationFn: (id) => db.Product.delete(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); toast.success('Product deleted'); setDeleteId(null); }
+    mutationFn: async (id) => { await db.Product.delete(id); return id; },
+    onSuccess: (deletedId) => { qc.setQueryData(['products'], (old) => (old || []).filter(p => p.id !== deletedId)); toast.success('Product deleted'); setDeleteId(null); },
+    onError: () => qc.invalidateQueries({ queryKey: ['products'] })
   });
-
-  const filteredProducts = creatorFilter ? products.filter(p => p.creator_id === creatorFilter) : products;
 
   const totalValue = products.reduce((a, p) => a + ((p.production_cost || 0) * (p.stock_qty || 0)), 0);
   const totalStock = products.reduce((a, p) => a + (p.stock_qty || 0), 0);
   const lowStock = products.filter(p => (p.stock_qty || 0) > 0 && (p.stock_qty || 0) <= 10).length;
   const outOfStock = products.filter(p => (p.stock_qty || 0) === 0).length;
+
+  const filtered = creatorFilter ? products.filter(p => p.creator_name === creatorFilter) : products;
 
   const columns = [
     { key: 'name', label: 'Product', render: v => <span className="font-medium">{v}</span> },
@@ -84,7 +85,7 @@ export default function Products() {
           </div>
         )}
       </div>
-      <CreatorBadge creatorName={row.creator_name} creatorEmail={row.creator_email} createdAt={row.created_at} updatedAt={row.updated_at} />
+      <CreatedByBadge row={row} />
     </div>
   );
 
@@ -104,11 +105,11 @@ export default function Products() {
         <SummaryCard title="Out of Stock" value={formatNumber(outOfStock)} icon={XCircle} delay={0.2} />
       </div>
 
-      <div className="flex justify-end mb-3">
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
         <CreatorFilter value={creatorFilter} onChange={setCreatorFilter} />
       </div>
 
-      <DataTable columns={columns} data={filteredProducts} isLoading={isLoading} searchKey="name" expandedContent={expandedContent} />
+      <DataTable columns={columns} data={filtered} isLoading={isLoading} searchKey="name" expandedContent={expandedContent} />
 
       <ProductForm open={formOpen} onClose={() => { setFormOpen(false); setEditing(null); }} editing={editing} />
       <StockUpdateForm product={stockOpen} onClose={() => setStockOpen(null)} />

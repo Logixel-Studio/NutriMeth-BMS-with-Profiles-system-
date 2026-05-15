@@ -1,36 +1,37 @@
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/api/supabaseClient';
-import { useAuth } from '@/lib/AuthContext';
-
-export function useTeamMembers() {
-  return useQuery({
-    queryKey: ['team_members'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('user_profiles').select('*').order('full_name');
-      if (error) throw error;
-      return data || [];
-    },
-    staleTime: 60_000,
-  });
-}
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { UserCircle } from 'lucide-react';
 
 export default function CreatorFilter({ value, onChange }) {
-  const { data: members = [] } = useTeamMembers();
-  const { user } = useAuth();
+  const { data: profiles = [] } = useQuery({
+    queryKey: ['user_profiles'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('id, full_name, email')
+        .order('full_name');
+      if (error) throw error;
+      return data || [];
+    }
+  });
 
   return (
-    <Select value={value || 'all'} onValueChange={v => onChange(v === 'all' ? '' : v)}>
-      <SelectTrigger className="h-9 w-[160px] text-sm">
-        <SelectValue placeholder="All Creators" />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="all">All Creators</SelectItem>
-        {user && <SelectItem value={user.id}>My Entries</SelectItem>}
-        {members.filter(m => m.id !== user?.id).map(m => (
-          <SelectItem key={m.id} value={m.id}>{m.full_name || m.email}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <div className="flex items-center gap-2">
+      <UserCircle className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+      <Select value={value || 'all'} onValueChange={v => onChange(v === 'all' ? '' : v)}>
+        <SelectTrigger className="w-44 h-9 text-sm">
+          <SelectValue placeholder="All creators" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All Team Members</SelectItem>
+          {profiles.map(p => (
+            <SelectItem key={p.id} value={p.full_name || p.email}>
+              {p.full_name || p.email}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   );
 }

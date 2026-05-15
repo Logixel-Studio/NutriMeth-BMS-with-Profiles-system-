@@ -103,3 +103,14 @@
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.5);
 }
+/* Sidebar offset via CSS variable — set by AppLayout via JS */
+:root {
+  --sidebar-w: 260px;
+}
+
+@media (min-width: 1024px) {
+  .main-content-area {
+    margin-left: var(--sidebar-w);
+    transition: margin-left 0.3s ease;
+  }
+}

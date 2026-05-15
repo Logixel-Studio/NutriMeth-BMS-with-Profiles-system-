@@ -79,8 +79,8 @@ export default function SaleForm({ open, onClose, editing, clients, products }) 
       }
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['sales'] });
-      qc.invalidateQueries({ queryKey: ['products'] });
+      // Invalidate both in one batch to avoid two separate re-renders
+      qc.invalidateQueries({ predicate: q => ['sales','products'].includes(q.queryKey[0]) });
       toast.success(editing ? 'Sale updated' : 'Sale created');
       onClose();
     }

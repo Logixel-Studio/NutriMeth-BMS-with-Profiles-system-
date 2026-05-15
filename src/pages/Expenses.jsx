@@ -11,7 +11,7 @@ import DueDateBadge from '@/components/shared/DueDateBadge';
 import ConfirmDialog from '@/components/shared/ConfirmDialog';
 import ExpenseTypeForm from '@/components/expenses/ExpenseTypeForm';
 import ExpenseForm from '@/components/expenses/ExpenseForm';
-import CreatorBadge from '@/components/shared/CreatorBadge';
+import CreatedByBadge from '@/components/shared/CreatedByBadge';
 import CreatorFilter from '@/components/shared/CreatorFilter';
 import { Button } from '@/components/ui/button';
 import { Receipt, DollarSign, CheckCircle, XCircle, Plus, Tag, Pencil, Trash2 } from 'lucide-react';
@@ -33,19 +33,21 @@ export default function Expenses() {
   const { data: expenseTypes = [], isLoading: loadingTypes } = useQuery({ queryKey: ['expenseTypes'], queryFn: () => db.ExpenseType.list() });
 
   const deleteExpense = useMutation({
-    mutationFn: (id) => db.Expense.delete(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['expenses'] }); toast.success('Deleted'); setDeleteId(null); }
+    mutationFn: async (id) => { await db.Expense.delete(id); return id; },
+    onSuccess: (deletedId) => { qc.setQueryData(['expenses'], (old) => (old || []).filter(e => e.id !== deletedId)); toast.success('Deleted'); setDeleteId(null); },
+    onError: () => qc.invalidateQueries({ queryKey: ['expenses'] })
   });
   const deleteTypeMut = useMutation({
-    mutationFn: (id) => db.ExpenseType.delete(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['expenseTypes'] }); toast.success('Type deleted'); setDeleteType(null); }
+    mutationFn: async (id) => { await db.ExpenseType.delete(id); return id; },
+    onSuccess: (deletedId) => { qc.setQueryData(['expenseTypes'], (old) => (old || []).filter(t => t.id !== deletedId)); toast.success('Type deleted'); setDeleteType(null); },
+    onError: () => qc.invalidateQueries({ queryKey: ['expenseTypes'] })
   });
-
-  const filteredExpenses = creatorFilter ? expenses.filter(e => e.creator_id === creatorFilter) : expenses;
 
   const totalAmount = expenses.reduce((a, e) => a + (e.total || 0), 0);
   const paidCount = expenses.filter(e => e.payment_status === 'paid').length;
   const unpaidCount = expenses.filter(e => e.payment_status === 'unpaid').length;
+
+  const filtered = creatorFilter ? expenses.filter(e => e.creator_name === creatorFilter) : expenses;
 
   const expenseColumns = [
     { key: 'expense_type_name', label: 'Type', render: v => <span className="font-medium">{v}</span> },
@@ -83,7 +85,7 @@ export default function Expenses() {
   ];
 
   const expandedContent = (row) => (
-    <div>
+    <div className="space-y-3">
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
         <div><p className="text-xs text-muted-foreground">Description</p><p>{row.description || '—'}</p></div>
         <div><p className="text-xs text-muted-foreground">Unit Price</p><p>{formatCurrency(row.unit_price)}</p></div>
@@ -92,7 +94,14 @@ export default function Expenses() {
         {row.due_date && <div><p className="text-xs text-muted-foreground">Due Date</p><p>{formatDate(row.due_date)}</p></div>}
         {row.due_date && row.payment_status !== 'paid' && <div><p className="text-xs text-muted-foreground">Time Left</p><DueDateBadge dueDate={row.due_date} paymentStatus={row.payment_status} /></div>}
       </div>
-      <CreatorBadge creatorName={row.creator_name} creatorEmail={row.creator_email} createdAt={row.created_at} updatedAt={row.updated_at} />
+      <CreatedByBadge row={row} />
+    </div>
+  );
+
+  const typeExpandedContent = (row) => (
+    <div className="space-y-3">
+      <div className="text-sm"><p className="text-xs text-muted-foreground">Description</p><p>{row.description || '—'}</p></div>
+      <CreatedByBadge row={row} />
     </div>
   );
 
@@ -115,18 +124,18 @@ export default function Expenses() {
       </div>
 
       <Tabs defaultValue="expenses" className="space-y-4">
-        <div className="flex items-center justify-between">
-          <TabsList>
-            <TabsTrigger value="expenses">Expenses</TabsTrigger>
-            <TabsTrigger value="types">Expense Types</TabsTrigger>
-          </TabsList>
-          <CreatorFilter value={creatorFilter} onChange={setCreatorFilter} />
-        </div>
+        <TabsList>
+          <TabsTrigger value="expenses">Expenses</TabsTrigger>
+          <TabsTrigger value="types">Expense Types</TabsTrigger>
+        </TabsList>
         <TabsContent value="expenses">
-          <DataTable columns={expenseColumns} data={filteredExpenses} isLoading={isLoading} searchKey="expense_type_name" expandedContent={expandedContent} />
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
+            <CreatorFilter value={creatorFilter} onChange={setCreatorFilter} />
+          </div>
+          <DataTable columns={expenseColumns} data={filtered} isLoading={isLoading} searchKey="expense_type_name" expandedContent={expandedContent} />
         </TabsContent>
         <TabsContent value="types">
-          <DataTable columns={typeColumns} data={expenseTypes} isLoading={loadingTypes} searchKey="name" />
+          <DataTable columns={typeColumns} data={expenseTypes} isLoading={loadingTypes} searchKey="name" expandedContent={typeExpandedContent} />
         </TabsContent>
       </Tabs>
 

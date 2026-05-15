@@ -11,7 +11,7 @@ import DueDateBadge from '@/components/shared/DueDateBadge';
 import ConfirmDialog from '@/components/shared/ConfirmDialog';
 import PurchaseTypeForm from '@/components/purchasing/PurchaseTypeForm';
 import PurchaseForm from '@/components/purchasing/PurchaseForm';
-import CreatorBadge from '@/components/shared/CreatorBadge';
+import CreatedByBadge from '@/components/shared/CreatedByBadge';
 import CreatorFilter from '@/components/shared/CreatorFilter';
 import { Button } from '@/components/ui/button';
 import { ShoppingCart, DollarSign, CheckCircle, XCircle, AlertCircle, Plus, Pencil, Trash2, Tag } from 'lucide-react';
@@ -34,20 +34,22 @@ export default function Purchasing() {
   const { data: suppliers = [] } = useQuery({ queryKey: ['suppliers'], queryFn: () => db.Supplier.list() });
 
   const deletePurchase = useMutation({
-    mutationFn: (id) => db.Purchase.delete(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['purchases'] }); toast.success('Deleted'); setDeleteId(null); }
+    mutationFn: async (id) => { await db.Purchase.delete(id); return id; },
+    onSuccess: (deletedId) => { qc.setQueryData(['purchases'], (old) => (old || []).filter(p => p.id !== deletedId)); toast.success('Deleted'); setDeleteId(null); },
+    onError: () => qc.invalidateQueries({ queryKey: ['purchases'] })
   });
   const deleteTypeMut = useMutation({
-    mutationFn: (id) => db.PurchaseType.delete(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['purchaseTypes'] }); toast.success('Type deleted'); setDeleteType(null); }
+    mutationFn: async (id) => { await db.PurchaseType.delete(id); return id; },
+    onSuccess: (deletedId) => { qc.setQueryData(['purchaseTypes'], (old) => (old || []).filter(t => t.id !== deletedId)); toast.success('Type deleted'); setDeleteType(null); },
+    onError: () => qc.invalidateQueries({ queryKey: ['purchaseTypes'] })
   });
-
-  const filteredPurchases = creatorFilter ? purchases.filter(p => p.creator_id === creatorFilter) : purchases;
 
   const totalAmount = purchases.reduce((a, p) => a + (p.total || 0), 0);
   const paidCount = purchases.filter(p => p.payment_status === 'paid').length;
   const unpaidCount = purchases.filter(p => p.payment_status === 'unpaid').length;
   const partialCount = purchases.filter(p => p.payment_status === 'partial').length;
+
+  const filtered = creatorFilter ? purchases.filter(p => p.creator_name === creatorFilter) : purchases;
 
   const purchaseColumns = [
     { key: 'supplier_name', label: 'Supplier', render: v => <span className="font-medium">{v}</span> },
@@ -86,7 +88,7 @@ export default function Purchasing() {
   ];
 
   const expandedContent = (row) => (
-    <div>
+    <div className="space-y-3">
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
         <div><p className="text-xs text-muted-foreground">Description</p><p>{row.description || '—'}</p></div>
         <div><p className="text-xs text-muted-foreground">Unit Price</p><p>{formatCurrency(row.unit_price)}</p></div>
@@ -95,7 +97,14 @@ export default function Purchasing() {
         {row.due_date && <div><p className="text-xs text-muted-foreground">Due Date</p><p>{formatDate(row.due_date)}</p></div>}
         {row.due_date && row.payment_status !== 'paid' && <div><p className="text-xs text-muted-foreground">Time Left</p><DueDateBadge dueDate={row.due_date} paymentStatus={row.payment_status} /></div>}
       </div>
-      <CreatorBadge creatorName={row.creator_name} creatorEmail={row.creator_email} createdAt={row.created_at} updatedAt={row.updated_at} />
+      <CreatedByBadge row={row} />
+    </div>
+  );
+
+  const typeExpandedContent = (row) => (
+    <div className="space-y-3">
+      <div className="text-sm"><p className="text-xs text-muted-foreground">Description</p><p>{row.description || '—'}</p></div>
+      <CreatedByBadge row={row} />
     </div>
   );
 
@@ -119,18 +128,18 @@ export default function Purchasing() {
       </div>
 
       <Tabs defaultValue="purchases" className="space-y-4">
-        <div className="flex items-center justify-between">
-          <TabsList>
-            <TabsTrigger value="purchases">Purchases</TabsTrigger>
-            <TabsTrigger value="types">Purchase Types</TabsTrigger>
-          </TabsList>
-          <CreatorFilter value={creatorFilter} onChange={setCreatorFilter} />
-        </div>
+        <TabsList>
+          <TabsTrigger value="purchases">Purchases</TabsTrigger>
+          <TabsTrigger value="types">Purchase Types</TabsTrigger>
+        </TabsList>
         <TabsContent value="purchases">
-          <DataTable columns={purchaseColumns} data={filteredPurchases} isLoading={isLoading} searchKey="supplier_name" expandedContent={expandedContent} />
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
+            <CreatorFilter value={creatorFilter} onChange={setCreatorFilter} />
+          </div>
+          <DataTable columns={purchaseColumns} data={filtered} isLoading={isLoading} searchKey="supplier_name" expandedContent={expandedContent} />
         </TabsContent>
         <TabsContent value="types">
-          <DataTable columns={typeColumns} data={purchaseTypes} isLoading={loadingTypes} searchKey="name" />
+          <DataTable columns={typeColumns} data={purchaseTypes} isLoading={loadingTypes} searchKey="name" expandedContent={typeExpandedContent} />
         </TabsContent>
       </Tabs>
 

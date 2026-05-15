@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { db } from '@/api/supabaseClient';
 import { getDueDateInfo, isOverdue } from '@/lib/dueDateUtils';
@@ -140,25 +140,36 @@ export default function NotificationPanel() {
   });
   const [open, setOpen] = useState(false);
 
-  const { data: sales = [] } = useQuery({ queryKey: ['sales'], queryFn: () => db.Sale.list(), refetchInterval: 60000 });
-  const { data: purchases = [] } = useQuery({ queryKey: ['purchases'], queryFn: () => db.Purchase.list(), refetchInterval: 60000 });
-  const { data: expenses = [] } = useQuery({ queryKey: ['expenses'], queryFn: () => db.Expense.list(), refetchInterval: 60000 });
-  const { data: products = [] } = useQuery({ queryKey: ['products'], queryFn: () => db.Product.list(), refetchInterval: 60000 });
+  // Share cache with page-level queries (same query keys, staleTime keeps them from re-fetching)
+  const { data: sales = [] } = useQuery({ queryKey: ['sales'], queryFn: () => db.Sale.list(), staleTime: 30_000 });
+  const { data: purchases = [] } = useQuery({ queryKey: ['purchases'], queryFn: () => db.Purchase.list(), staleTime: 30_000 });
+  const { data: expenses = [] } = useQuery({ queryKey: ['expenses'], queryFn: () => db.Expense.list(), staleTime: 30_000 });
+  const { data: products = [] } = useQuery({ queryKey: ['products'], queryFn: () => db.Product.list(), staleTime: 30_000 });
 
-  const notifications = buildNotifications(sales, purchases, expenses, products);
-  const unread = notifications.filter(n => !readIds.has(n.id)).length;
+  // Memoize expensive notification computation — only recalculates when data actually changes
+  const notifications = useMemo(
+    () => buildNotifications(sales, purchases, expenses, products),
+    [sales, purchases, expenses, products]
+  );
 
-  const markAllRead = () => {
+  const unread = useMemo(
+    () => notifications.filter(n => !readIds.has(n.id)).length,
+    [notifications, readIds]
+  );
+
+  const markAllRead = useCallback(() => {
     const all = new Set(notifications.map(n => n.id));
     setReadIds(all);
     localStorage.setItem('notif_read', JSON.stringify([...all]));
-  };
+  }, [notifications]);
 
-  const markRead = (id) => {
-    const updated = new Set([...readIds, id]);
-    setReadIds(updated);
-    localStorage.setItem('notif_read', JSON.stringify([...updated]));
-  };
+  const markRead = useCallback((id) => {
+    setReadIds(prev => {
+      const updated = new Set([...prev, id]);
+      localStorage.setItem('notif_read', JSON.stringify([...updated]));
+      return updated;
+    });
+  }, []);
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
