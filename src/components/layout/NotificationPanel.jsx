@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { db } from '@/api/supabaseClient';
+import { useState, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { db, realtimeManager } from '@/api/supabaseClient';
 import { getDueDateInfo, isOverdue } from '@/lib/dueDateUtils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,14 +8,13 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Bell, AlertTriangle, Clock, Package, CreditCard, CheckCheck } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { formatDate } from '@/lib/formatters';
 import { useCurrency } from '@/lib/CurrencyContext';
 
 function buildNotifications(sales, purchases, expenses, products) {
   const notifs = [];
 
-  // Payment alerts - sales
   sales.forEach(s => {
     if (s.payment_status === 'paid') return;
     const remaining = (s.total || 0) - (s.paid_amount || 0);
@@ -53,7 +52,6 @@ function buildNotifications(sales, purchases, expenses, products) {
     }
   });
 
-  // Payment alerts - purchases
   purchases.forEach(p => {
     if (p.payment_status === 'paid') return;
     const remaining = (p.total || 0) - (p.paid_amount || 0);
@@ -77,7 +75,6 @@ function buildNotifications(sales, purchases, expenses, products) {
     }
   });
 
-  // Payment alerts - expenses
   expenses.forEach(e => {
     if (e.payment_status === 'paid') return;
     const remaining = (e.total || 0) - (e.paid_amount || 0);
@@ -101,7 +98,6 @@ function buildNotifications(sales, purchases, expenses, products) {
     }
   });
 
-  // Stock alerts
   products.forEach(p => {
     const qty = p.stock_qty || 0;
     if (qty === 0) {
@@ -129,8 +125,20 @@ function buildNotifications(sales, purchases, expenses, products) {
     }
   });
 
-  // Sort: urgent first
   return notifs.sort((a, b) => (b.urgent ? 1 : 0) - (a.urgent ? 1 : 0));
+}
+
+// Hook: subscribes to a table via the shared realtime manager and
+// invalidates the matching React Query key when any change arrives.
+// One subscription per table — shared across all components via realtimeManager.
+function useRealtimeInvalidation(table, queryKey) {
+  const qc = useQueryClient();
+  useEffect(() => {
+    const unsub = realtimeManager.subscribe(table, () => {
+      qc.invalidateQueries({ queryKey: [queryKey] });
+    });
+    return unsub;
+  }, [table, queryKey, qc]);
 }
 
 export default function NotificationPanel() {
@@ -140,36 +148,55 @@ export default function NotificationPanel() {
   });
   const [open, setOpen] = useState(false);
 
-  // Share cache with page-level queries (same query keys, staleTime keeps them from re-fetching)
-  const { data: sales = [] } = useQuery({ queryKey: ['sales'], queryFn: () => db.Sale.list(), staleTime: 30_000 });
-  const { data: purchases = [] } = useQuery({ queryKey: ['purchases'], queryFn: () => db.Purchase.list(), staleTime: 30_000 });
-  const { data: expenses = [] } = useQuery({ queryKey: ['expenses'], queryFn: () => db.Expense.list(), staleTime: 30_000 });
-  const { data: products = [] } = useQuery({ queryKey: ['products'], queryFn: () => db.Product.list(), staleTime: 30_000 });
+  // FIX: Removed refetchInterval: 60000 from ALL four queries.
+  //
+  // Previously, each query had its own 60-second timer. Because these query
+  // keys are shared across the whole app, every 60 seconds ALL four queries
+  // would fire simultaneously — creating a burst of 4 network requests that
+  // cascaded into re-renders across every mounted page.
+  //
+  // Instead we use realtime subscriptions (below) to invalidate the cache
+  // only when actual data changes happen. This means:
+  //  - 0 polling requests when nothing changes
+  //  - Instant updates across all PCs when someone changes data
+  const { data: sales = [] } = useQuery({
+    queryKey: ['sales'],
+    queryFn: () => db.Sale.list(),
+  });
+  const { data: purchases = [] } = useQuery({
+    queryKey: ['purchases'],
+    queryFn: () => db.Purchase.list(),
+  });
+  const { data: expenses = [] } = useQuery({
+    queryKey: ['expenses'],
+    queryFn: () => db.Expense.list(),
+  });
+  const { data: products = [] } = useQuery({
+    queryKey: ['products'],
+    queryFn: () => db.Product.list(),
+  });
 
-  // Memoize expensive notification computation — only recalculates when data actually changes
-  const notifications = useMemo(
-    () => buildNotifications(sales, purchases, expenses, products),
-    [sales, purchases, expenses, products]
-  );
+  // Realtime: one shared channel per table — all components benefit from
+  // the same subscription rather than each creating its own.
+  useRealtimeInvalidation('sales', 'sales');
+  useRealtimeInvalidation('purchases', 'purchases');
+  useRealtimeInvalidation('expenses', 'expenses');
+  useRealtimeInvalidation('products', 'products');
 
-  const unread = useMemo(
-    () => notifications.filter(n => !readIds.has(n.id)).length,
-    [notifications, readIds]
-  );
+  const notifications = buildNotifications(sales, purchases, expenses, products);
+  const unread = notifications.filter(n => !readIds.has(n.id)).length;
 
-  const markAllRead = useCallback(() => {
+  const markAllRead = () => {
     const all = new Set(notifications.map(n => n.id));
     setReadIds(all);
     localStorage.setItem('notif_read', JSON.stringify([...all]));
-  }, [notifications]);
+  };
 
-  const markRead = useCallback((id) => {
-    setReadIds(prev => {
-      const updated = new Set([...prev, id]);
-      localStorage.setItem('notif_read', JSON.stringify([...updated]));
-      return updated;
-    });
-  }, []);
+  const markRead = (id) => {
+    const updated = new Set([...readIds, id]);
+    setReadIds(updated);
+    localStorage.setItem('notif_read', JSON.stringify([...updated]));
+  };
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -189,7 +216,6 @@ export default function NotificationPanel() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[340px] sm:w-[380px] p-0" sideOffset={8}>
-        {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div>
             <h3 className="font-semibold text-sm">Notifications</h3>
@@ -232,6 +258,9 @@ export default function NotificationPanel() {
                       <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{n.message}</p>
                       {n.amount > 0 && (
                         <p className="text-xs font-medium text-foreground mt-0.5">{formatCurrency(n.amount)}</p>
+                      )}
+                      {n.date && (
+                        <p className="text-xs text-muted-foreground mt-0.5">{formatDate(n.date)}</p>
                       )}
                     </div>
                   </div>

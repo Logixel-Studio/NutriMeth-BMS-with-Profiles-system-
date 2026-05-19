@@ -15,6 +15,7 @@ import CreatorFilter from '@/components/shared/CreatorFilter';
 import { Button } from '@/components/ui/button';
 import { Truck, UserCheck, Clock, ShoppingCart, Plus, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useRealtimeQuery } from '@/hooks/useRealtimeQuery';
 
 export default function Suppliers() {
   const { formatCurrency } = useCurrency();
@@ -27,10 +28,14 @@ export default function Suppliers() {
   const { data: suppliers = [], isLoading } = useQuery({ queryKey: ['suppliers'], queryFn: () => db.Supplier.list() });
   const { data: purchases = [] } = useQuery({ queryKey: ['purchases'], queryFn: () => db.Purchase.list() });
 
+  // Realtime: stay live across all users/PCs
+  useRealtimeQuery('suppliers', ['suppliers']);
+  useRealtimeQuery('purchases', ['purchases']);
+
+
   const deleteMut = useMutation({
-    mutationFn: async (id) => { await db.Supplier.delete(id); return id; },
-    onSuccess: (deletedId) => { qc.setQueryData(['suppliers'], (old) => (old || []).filter(s => s.id !== deletedId)); toast.success('Supplier deleted'); setDeleteId(null); },
-    onError: () => qc.invalidateQueries({ queryKey: ['suppliers'] })
+    mutationFn: (id) => db.Supplier.delete(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['suppliers'] }); toast.success('Supplier deleted'); setDeleteId(null); }
   });
 
   const activeSuppliers = suppliers.filter(s => s.status === 'active').length;

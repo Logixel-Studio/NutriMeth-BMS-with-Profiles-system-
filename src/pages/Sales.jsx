@@ -15,6 +15,7 @@ import CreatorFilter from '@/components/shared/CreatorFilter';
 import { Button } from '@/components/ui/button';
 import { TrendingUp, DollarSign, CheckCircle, XCircle, AlertCircle, Plus, Pencil, Trash2, BarChart3 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useRealtimeQuery } from '@/hooks/useRealtimeQuery';
 
 export default function Sales() {
   const { formatCurrency } = useCurrency();
@@ -28,6 +29,11 @@ export default function Sales() {
   const { data: clients = [] } = useQuery({ queryKey: ['clients'], queryFn: () => db.Client.list() });
   const { data: products = [] } = useQuery({ queryKey: ['products'], queryFn: () => db.Product.list() });
 
+  // Realtime: keep this page live when other users make changes
+  useRealtimeQuery('sales', ['sales']);
+  useRealtimeQuery('products', ['products']);
+  useRealtimeQuery('clients', ['clients']);
+
   const deleteMut = useMutation({
     mutationFn: async (id) => {
       const sale = sales.find(s => s.id === id);
@@ -37,26 +43,16 @@ export default function Sales() {
           const newQty = (product.stock_qty || 0) + (sale.qty || 0);
           let status = newQty === 0 ? 'out_of_stock' : newQty <= 10 ? 'low_stock' : 'in_stock';
           await db.Product.update(product.id, { stock_qty: newQty, status });
-          // Optimistically update products cache
-          qc.setQueryData(['products'], (old) =>
-            (old || []).map(p => p.id === product.id ? { ...p, stock_qty: newQty, status } : p)
-          );
         }
       }
-      await db.Sale.delete(id);
-      return id;
+      return db.Sale.delete(id);
     },
-    onSuccess: (deletedId) => {
-      // Optimistically remove from cache — avoids full refetch and rerender storm
-      qc.setQueryData(['sales'], (old) => (old || []).filter(s => s.id !== deletedId));
-      toast.success('Sale deleted, stock restored');
-      setDeleteId(null);
-    },
-    onError: () => {
-      // On error, invalidate to get correct server state
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sales'] });
       qc.invalidateQueries({ queryKey: ['products'] });
-    },
+      toast.success('Sale deleted, stock restored');
+      setDeleteId(null);
+    }
   });
 
   const totalRevenue = sales.reduce((a, s) => a + (s.total || 0), 0);

@@ -18,6 +18,7 @@ import {
   Mail, Calendar, Pencil, Trash2, Shield, Loader2, X
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useRealtimeQuery } from '@/hooks/useRealtimeQuery';
 
 function getMemberInitials(name) {
   if (!name) return '?';
@@ -223,19 +224,21 @@ export default function Team() {
       if (error) throw error;
       return data || [];
     },
-    staleTime: 30_000, // don't re-fetch for 30s
+    staleTime: 30_000,
   });
+
+  // Realtime: stay live across all users/PCs
+  useRealtimeQuery('user_profiles', ['user_profiles']);
 
   const deleteMut = useMutation({
     mutationFn: async (id) => {
       const { error } = await supabase.from('user_profiles').delete().eq('id', id);
       if (error) throw error;
-      return id;
     },
-    onSuccess: (deletedId) => {
-      // Optimistically update cache using the actual deleted id (not stale closure)
+    onSuccess: () => {
+      // Optimistically update cache instead of full refetch
       qc.setQueryData(['user_profiles'], (old) =>
-        (old || []).filter((m) => m.id !== deletedId)
+        (old || []).filter((m) => m.id !== deleteId)
       );
       toast.success('Member removed');
       setDeleteId(null);

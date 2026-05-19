@@ -12,12 +12,17 @@ import { useTheme } from '@/lib/useTheme';
 import { toast } from 'sonner';
 import { Building2, Palette, Globe } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useRealtimeQuery } from '@/hooks/useRealtimeQuery';
 
 export default function Settings() {
   const qc = useQueryClient();
   const { theme, setTheme } = useTheme();
   const { refreshSettings } = useCurrency();
   const { data: settingsList = [] } = useQuery({ queryKey: ['settings'], queryFn: () => db.CompanySettings.list() });
+
+  // Realtime: stay live across all users/PCs
+  useRealtimeQuery('company_settings', ['settings']);
+
   const settings = settingsList[0] || {};
 
   const [form, setForm] = useState({
@@ -44,8 +49,9 @@ export default function Settings() {
       ? db.CompanySettings.update(settings.id, data)
       : db.CompanySettings.create(data),
     onSuccess: async () => {
+      // invalidateQueries triggers CurrencyContext to update automatically
+      // since it reads from the same ['settings'] cache key
       qc.invalidateQueries({ queryKey: ['settings'] });
-      await refreshSettings(); // Update global currency context immediately
       toast.success('Settings saved — currency updated across app');
     }
   });

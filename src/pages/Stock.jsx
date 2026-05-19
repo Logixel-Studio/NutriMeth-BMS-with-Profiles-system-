@@ -16,6 +16,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Package, DollarSign, AlertTriangle, XCircle, CheckCircle, ChevronDown, ChevronUp, Plus, Minus, Edit3, Search, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { useRealtimeQuery } from '@/hooks/useRealtimeQuery';
 
 export default function Stock() {
   const { formatCurrency } = useCurrency();
@@ -27,6 +28,11 @@ export default function Stock() {
 
   const { data: products = [], isLoading } = useQuery({ queryKey: ['products'], queryFn: () => db.Product.list() });
   const { data: sales = [] } = useQuery({ queryKey: ['sales'], queryFn: () => db.Sale.list() });
+
+  // Realtime: stay live across all users/PCs
+  useRealtimeQuery('products', ['products']);
+  useRealtimeQuery('sales', ['sales']);
+
 
   const filtered = products.filter(p => {
     const matchSearch = !search || p.name?.toLowerCase().includes(search.toLowerCase());
@@ -230,18 +236,7 @@ function StockAdjustDialog({ product, onClose, qc }) {
       let status = newQty === 0 ? 'out_of_stock' : newQty <= 10 ? 'low_stock' : 'in_stock';
       return db.Product.update(product.id, { stock_qty: newQty, status });
     },
-    onSuccess: (updatedProduct) => {
-      if (updatedProduct) {
-        qc.setQueryData(['products'], (old) =>
-          (old || []).map(p => p.id === updatedProduct.id ? updatedProduct : p)
-        );
-      } else {
-        qc.invalidateQueries({ queryKey: ['products'] });
-      }
-      toast.success('Stock updated');
-      onClose();
-      setQty('');
-    }
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); toast.success('Stock updated'); onClose(); setQty(''); }
   });
 
   if (!product) return null;

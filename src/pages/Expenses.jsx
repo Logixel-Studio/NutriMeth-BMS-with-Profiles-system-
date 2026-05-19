@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Receipt, DollarSign, CheckCircle, XCircle, Plus, Tag, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useRealtimeQuery } from '@/hooks/useRealtimeQuery';
 
 export default function Expenses() {
   const { formatCurrency } = useCurrency();
@@ -32,15 +33,18 @@ export default function Expenses() {
   const { data: expenses = [], isLoading } = useQuery({ queryKey: ['expenses'], queryFn: () => db.Expense.list() });
   const { data: expenseTypes = [], isLoading: loadingTypes } = useQuery({ queryKey: ['expenseTypes'], queryFn: () => db.ExpenseType.list() });
 
+  // Realtime: stay live across all users/PCs
+  useRealtimeQuery('expenses', ['expenses']);
+  useRealtimeQuery('expense_types', ['expenseTypes']);
+
+
   const deleteExpense = useMutation({
-    mutationFn: async (id) => { await db.Expense.delete(id); return id; },
-    onSuccess: (deletedId) => { qc.setQueryData(['expenses'], (old) => (old || []).filter(e => e.id !== deletedId)); toast.success('Deleted'); setDeleteId(null); },
-    onError: () => qc.invalidateQueries({ queryKey: ['expenses'] })
+    mutationFn: (id) => db.Expense.delete(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['expenses'] }); toast.success('Deleted'); setDeleteId(null); }
   });
   const deleteTypeMut = useMutation({
-    mutationFn: async (id) => { await db.ExpenseType.delete(id); return id; },
-    onSuccess: (deletedId) => { qc.setQueryData(['expenseTypes'], (old) => (old || []).filter(t => t.id !== deletedId)); toast.success('Type deleted'); setDeleteType(null); },
-    onError: () => qc.invalidateQueries({ queryKey: ['expenseTypes'] })
+    mutationFn: (id) => db.ExpenseType.delete(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['expenseTypes'] }); toast.success('Type deleted'); setDeleteType(null); }
   });
 
   const totalAmount = expenses.reduce((a, e) => a + (e.total || 0), 0);

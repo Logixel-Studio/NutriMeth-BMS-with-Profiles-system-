@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { ShoppingCart, DollarSign, CheckCircle, XCircle, AlertCircle, Plus, Pencil, Trash2, Tag } from 'lucide-react';
 import { toast } from 'sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useRealtimeQuery } from '@/hooks/useRealtimeQuery';
 
 export default function Purchasing() {
   const { formatCurrency } = useCurrency();
@@ -33,15 +34,19 @@ export default function Purchasing() {
   const { data: purchaseTypes = [], isLoading: loadingTypes } = useQuery({ queryKey: ['purchaseTypes'], queryFn: () => db.PurchaseType.list() });
   const { data: suppliers = [] } = useQuery({ queryKey: ['suppliers'], queryFn: () => db.Supplier.list() });
 
+  // Realtime: stay live across all users/PCs
+  useRealtimeQuery('purchases', ['purchases']);
+  useRealtimeQuery('purchase_types', ['purchaseTypes']);
+  useRealtimeQuery('suppliers', ['suppliers']);
+
+
   const deletePurchase = useMutation({
-    mutationFn: async (id) => { await db.Purchase.delete(id); return id; },
-    onSuccess: (deletedId) => { qc.setQueryData(['purchases'], (old) => (old || []).filter(p => p.id !== deletedId)); toast.success('Deleted'); setDeleteId(null); },
-    onError: () => qc.invalidateQueries({ queryKey: ['purchases'] })
+    mutationFn: (id) => db.Purchase.delete(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['purchases'] }); toast.success('Deleted'); setDeleteId(null); }
   });
   const deleteTypeMut = useMutation({
-    mutationFn: async (id) => { await db.PurchaseType.delete(id); return id; },
-    onSuccess: (deletedId) => { qc.setQueryData(['purchaseTypes'], (old) => (old || []).filter(t => t.id !== deletedId)); toast.success('Type deleted'); setDeleteType(null); },
-    onError: () => qc.invalidateQueries({ queryKey: ['purchaseTypes'] })
+    mutationFn: (id) => db.PurchaseType.delete(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['purchaseTypes'] }); toast.success('Type deleted'); setDeleteType(null); }
   });
 
   const totalAmount = purchases.reduce((a, p) => a + (p.total || 0), 0);

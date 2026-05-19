@@ -1,13 +1,10 @@
-import { useState, memo } from 'react';
+import { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Search, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-
-// Removed AnimatePresence from row-level — it was creating/destroying heavy animation
-// contexts for every row on every render, causing massive rerender storms during
-// delete operations and data refreshes.
 
 export default function DataTable({ columns, data, isLoading, searchKey, onRowClick, expandedContent, pageSize = 10 }) {
   const [search, setSearch] = useState('');
@@ -38,17 +35,12 @@ export default function DataTable({ columns, data, isLoading, searchKey, onRowCl
   }
 
   return (
-    <div className="bg-card rounded-xl border border-border overflow-hidden">
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-xl border border-border overflow-hidden">
       {searchKey && (
         <div className="p-3 sm:p-4 border-b border-border">
           <div className="relative max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Search..."
-              value={search}
-              onChange={e => { setSearch(e.target.value); setPage(0); }}
-              className="pl-9 h-9"
-            />
+            <Input placeholder="Search..." value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} className="pl-9 h-9" />
           </div>
         </div>
       )}
@@ -73,17 +65,14 @@ export default function DataTable({ columns, data, isLoading, searchKey, onRowCl
               </TableRow>
             ) : (
               paginated.map(row => (
-                <>
+                <AnimatePresence key={row.id} mode="wait">
                   <TableRow
-                    key={row.id}
                     className="cursor-pointer hover:bg-muted/50 transition-colors"
                     onClick={() => handleRowClick(row)}
                   >
                     {expandedContent && (
                       <TableCell className="w-8 pr-0">
-                        {expandedId === row.id
-                          ? <ChevronUp className="w-4 h-4 text-muted-foreground" />
-                          : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                        {expandedId === row.id ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
                       </TableCell>
                     )}
                     {columns.map(col => (
@@ -95,11 +84,17 @@ export default function DataTable({ columns, data, isLoading, searchKey, onRowCl
                   {expandedContent && expandedId === row.id && (
                     <TableRow key={`${row.id}-expanded`}>
                       <TableCell colSpan={columns.length + 1} className="bg-muted/20 p-4">
-                        {expandedContent(row)}
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                        >
+                          {expandedContent(row)}
+                        </motion.div>
                       </TableCell>
                     </TableRow>
                   )}
-                </>
+                </AnimatePresence>
               ))
             )}
           </TableBody>
@@ -120,6 +115,6 @@ export default function DataTable({ columns, data, isLoading, searchKey, onRowCl
           </div>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }

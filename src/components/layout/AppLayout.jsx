@@ -1,36 +1,12 @@
-import { useState, useEffect, useCallback, memo } from 'react';
+import { useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 
-// Apply sidebar width as a CSS variable (no inline <style> injection per render)
-function useSidebarStyle(sidebarW) {
-  useEffect(() => {
-    document.documentElement.style.setProperty('--sidebar-w', `${sidebarW}px`);
-  }, [sidebarW]);
-}
-
-// Memoized so it doesn't re-render when parent sidebar state changes
-const MainContent = memo(function MainContent({ onMobileMenuToggle }) {
-  return (
-    <div className="main-content-area flex flex-col min-h-screen">
-      <Topbar onMobileMenuToggle={onMobileMenuToggle} />
-      <main className="flex-1 p-3 sm:p-4 lg:p-5 xl:p-6 overflow-x-hidden w-full">
-        <div className="w-full max-w-full">
-          <Outlet />
-        </div>
-      </main>
-    </div>
-  );
-});
-
 export default function AppLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-
-  const sidebarW = collapsed ? 72 : 260;
-  useSidebarStyle(sidebarW);
 
   useEffect(() => {
     const handler = () => { if (window.innerWidth >= 1024) setMobileOpen(false); };
@@ -38,8 +14,7 @@ export default function AppLayout() {
     return () => window.removeEventListener('resize', handler);
   }, []);
 
-  const handleMobileToggle = useCallback(() => setMobileOpen(v => !v), []);
-  const handleMobileClose = useCallback(() => setMobileOpen(false), []);
+  const sidebarW = collapsed ? 72 : 260;
 
   return (
     <div className="min-h-screen bg-background">
@@ -57,7 +32,7 @@ export default function AppLayout() {
           <>
             <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              onClick={handleMobileClose}
+              onClick={() => setMobileOpen(false)}
               className="fixed inset-0 bg-black/60 z-40 lg:hidden"
             />
             <motion.div
@@ -66,14 +41,33 @@ export default function AppLayout() {
               className="fixed left-0 top-0 bottom-0 z-50 lg:hidden"
               style={{ width: 260 }}
             >
-              <Sidebar collapsed={false} isMobile onClose={handleMobileClose} />
+              <Sidebar collapsed={false} isMobile onClose={() => setMobileOpen(false)} />
             </motion.div>
           </>
         )}
       </AnimatePresence>
 
-      {/* Main area - uses CSS variable for sidebar offset */}
-      <MainContent onMobileMenuToggle={handleMobileToggle} />
+      {/*
+        FIX: Replaced the dynamic <style> injection in MainContent with a
+        CSS custom property on the element. Injecting a <style> tag on every
+        render forces a full stylesheet re-parse and layout recalculation in the
+        browser — a major source of jank/freeze when sidebarW changed.
+      */}
+      <div
+        className="flex flex-col min-h-screen lg:transition-[margin-left] lg:duration-300"
+        style={{ '--sidebar-w': `${sidebarW}px` }}
+      >
+        {/* On large screens, push content right of the fixed sidebar */}
+        <style>{`@media (min-width: 1024px) { .sidebar-offset { margin-left: var(--sidebar-w, 260px); } }`}</style>
+        <div className="sidebar-offset flex flex-col min-h-screen">
+          <Topbar onMobileMenuToggle={() => setMobileOpen(!mobileOpen)} />
+          <main className="flex-1 p-3 sm:p-4 lg:p-5 xl:p-6 overflow-x-hidden w-full">
+            <div className="w-full max-w-full">
+              <Outlet />
+            </div>
+          </main>
+        </div>
+      </div>
     </div>
   );
 }

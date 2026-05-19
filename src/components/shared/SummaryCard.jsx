@@ -1,9 +1,7 @@
-import { memo } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 
-// Memoized — prevents re-animation when parent re-renders due to unrelated state changes
-const SummaryCard = memo(function SummaryCard({ title, value, icon: Icon, trend, trendUp, className, delay = 0 }) {
+export default function SummaryCard({ title, value, icon: Icon, trend, trendUp, className, delay = 0 }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -32,6 +30,4 @@ const SummaryCard = memo(function SummaryCard({ title, value, icon: Icon, trend,
       </div>
     </motion.div>
   );
-});
-
-export default SummaryCard;
+}

@@ -10,17 +10,12 @@ export const AuthProvider = ({ children }) => {
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [authChecked, setAuthChecked] = useState(false);
 
-  // Static values — never change
   const [isLoadingPublicSettings] = useState(false);
   const [authError] = useState(null);
   const [appPublicSettings] = useState({ id: 'nutrimeth', public_settings: {} });
 
-  // Track current user ID via ref to avoid stale closures
   const userIdRef = useRef(null);
-  // Guard against concurrent profile fetches
-  const fetchingRef = useRef(false);
-  // Prevent double-init (StrictMode double-invoke guard)
-  const initDoneRef = useRef(false);
+  const loadingDoneRef = useRef(false); // guard so setLoadingDone only fires once
 
   const fetchProfile = useCallback(async (userId) => {
     if (!userId) return null;
@@ -38,9 +33,8 @@ export const AuthProvider = ({ children }) => {
     } catch {
       return null;
     }
-  }, []); // stable — no deps that change
+  }, []);
 
-  // ensureProfile: upserts profile row if missing, then loads it
   const ensureProfile = useCallback(async (authUser) => {
     if (!authUser) return null;
     const fullName =
@@ -61,97 +55,109 @@ export const AuthProvider = ({ children }) => {
           avatar_url: authUser.user_metadata?.avatar_url || null,
         }]);
       }
-    } catch {
-      // profile may already exist via DB trigger — ignore
-    }
+    } catch {}
     return fetchProfile(authUser.id);
   }, [fetchProfile]);
+
+  const handleSignOut = useCallback(() => {
+    setUser(null);
+    setProfile(null);
+    setIsAuthenticated(false);
+    userIdRef.current = null;
+    setCreatorContext({ id: null, name: null, email: null });
+  }, []);
 
   useEffect(() => {
     let mounted = true;
 
+    // CRITICAL FIX: setLoadingDone is ALWAYS called exactly once.
+    // The previous version used fetchingRef as a lock — when INITIAL_SESSION
+    // fired and set fetchingRef=true, getSession()'s handleUser bailed out,
+    // and setIsLoadingAuth(false) was NEVER called → infinite loading screen.
+    const setLoadingDone = () => {
+      if (!mounted || loadingDoneRef.current) return;
+      loadingDoneRef.current = true;
+      setIsLoadingAuth(false);
+      setAuthChecked(true);
+    };
+
     const handleUser = async (authUser) => {
-      if (!mounted || fetchingRef.current) return;
-      fetchingRef.current = true;
-      try {
-        setUser(authUser);
-        setIsAuthenticated(true);
-        userIdRef.current = authUser.id;
-        await ensureProfile(authUser);
-      } finally {
-        if (mounted) fetchingRef.current = false;
-      }
+      if (!mounted) return;
+      if (authUser.id === userIdRef.current) return; // already handled
+      userIdRef.current = authUser.id;
+      setUser(authUser);
+      setIsAuthenticated(true);
+      // Profile load is fire-and-forget — does NOT block the loading screen
+      ensureProfile(authUser).catch(() => {});
     };
 
-    const handleSignOut = () => {
-      if (!mounted) return;
-      setUser(null);
-      setProfile(null);
-      setIsAuthenticated(false);
-      userIdRef.current = null;
-      fetchingRef.current = false;
-      setCreatorContext({ id: null, name: null, email: null });
-    };
-
-    // Initial session check — runs ONCE
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!mounted) return;
-      if (session?.user) {
-        await handleUser(session.user);
-      } else {
-        handleSignOut();
-      }
-      setIsLoadingAuth(false);
-      setAuthChecked(true);
-    }).catch(() => {
-      if (!mounted) return;
-      setIsLoadingAuth(false);
-      setAuthChecked(true);
-    });
-
-    // Auth state listener
-    // - Ignores TOKEN_REFRESHED to prevent re-render loops from token auto-refresh
-    // - Only handles actual sign-in/out events
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (!mounted) return;
-      // Skip token refreshes entirely — they don't need UI updates
-      if (event === 'TOKEN_REFRESHED') return;
-      // Skip INITIAL_SESSION — handled by getSession() above
-      if (event === 'INITIAL_SESSION') return;
-
-      if (event === 'SIGNED_IN' && session?.user) {
-        // Only re-process if this is actually a different user session
-        if (session.user.id !== userIdRef.current) {
+    // Step 1: getSession() — authoritative on page load/reload
+    // .finally() guarantees setLoadingDone() always runs
+    supabase.auth.getSession()
+      .then(async ({ data: { session } }) => {
+        if (!mounted) return;
+        if (session?.user) {
           await handleUser(session.user);
+        } else {
+          handleSignOut();
         }
-      } else if (event === 'SIGNED_OUT') {
-        handleSignOut();
-      } else if (event === 'USER_UPDATED' && session?.user) {
-        // Just update the user object, don't re-fetch profile
-        setUser(session.user);
+      })
+      .catch(() => {
+        if (mounted) handleSignOut();
+      })
+      .finally(setLoadingDone); // ← ALWAYS clears loading screen
+
+    // Step 2: Auth state listener for post-mount changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (!mounted) return;
+
+        if (event === 'TOKEN_REFRESHED') return; // silent, ignore
+
+        if (event === 'INITIAL_SESSION') {
+          // Fires immediately — handle only if getSession() lost the race
+          if (!userIdRef.current && session?.user) {
+            await handleUser(session.user);
+          } else if (!session) {
+            handleSignOut();
+          }
+          setLoadingDone(); // belt-and-suspenders: clear loading if still showing
+          return;
+        }
+
+        if (event === 'SIGNED_IN' && session?.user) {
+          await handleUser(session.user);
+          setLoadingDone();
+          return;
+        }
+
+        if (event === 'SIGNED_OUT') {
+          handleSignOut();
+          setLoadingDone();
+          return;
+        }
+
+        if (event === 'USER_UPDATED' && session?.user) {
+          setUser(session.user); // metadata update only, no profile re-fetch
+        }
       }
-    });
+    );
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []); // empty deps — run once on mount only
+  }, [ensureProfile, handleSignOut]);
 
   const logout = useCallback(async () => {
+    handleSignOut();
     await supabase.auth.signOut();
-    setUser(null);
-    setProfile(null);
-    setIsAuthenticated(false);
-    userIdRef.current = null;
-    fetchingRef.current = false;
-    setCreatorContext({ id: null, name: null, email: null });
-  }, []);
+  }, [handleSignOut]);
 
-  // checkUserAuth: used for manual re-auth checks — kept stable
   const checkUserAuth = useCallback(async () => {
     try {
       setIsLoadingAuth(true);
+      loadingDoneRef.current = false;
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user && session.user.id !== userIdRef.current) {
         setUser(session.user);
@@ -159,15 +165,13 @@ export const AuthProvider = ({ children }) => {
         userIdRef.current = session.user.id;
         await ensureProfile(session.user);
       } else if (!session) {
-        setUser(null);
-        setProfile(null);
-        setIsAuthenticated(false);
-        userIdRef.current = null;
+        handleSignOut();
       }
     } catch {}
+    loadingDoneRef.current = true;
     setIsLoadingAuth(false);
     setAuthChecked(true);
-  }, [ensureProfile]);
+  }, [ensureProfile, handleSignOut]);
 
   const checkAppState = useCallback(async () => { await checkUserAuth(); }, [checkUserAuth]);
   const navigateToLogin = useCallback(() => {}, []);
@@ -177,7 +181,6 @@ export const AuthProvider = ({ children }) => {
     || user?.email?.split('@')[0]
     || 'User';
 
-  // Memoize so consumers only re-render when relevant state actually changes
   const value = useMemo(() => ({
     user, profile, displayName, isAuthenticated, isLoadingAuth,
     isLoadingPublicSettings, authError, appPublicSettings, authChecked,

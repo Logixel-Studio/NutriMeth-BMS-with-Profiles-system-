@@ -15,6 +15,7 @@ import CreatorFilter from '@/components/shared/CreatorFilter';
 import { Button } from '@/components/ui/button';
 import { Package, DollarSign, CheckCircle, AlertTriangle, XCircle, Plus, Pencil, Trash2, BarChart3 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useRealtimeQuery } from '@/hooks/useRealtimeQuery';
 
 export default function Products() {
   const { formatCurrency } = useCurrency();
@@ -27,10 +28,13 @@ export default function Products() {
 
   const { data: products = [], isLoading } = useQuery({ queryKey: ['products'], queryFn: () => db.Product.list() });
 
+  // Realtime: stay live across all users/PCs
+  useRealtimeQuery('products', ['products']);
+
+
   const deleteMut = useMutation({
-    mutationFn: async (id) => { await db.Product.delete(id); return id; },
-    onSuccess: (deletedId) => { qc.setQueryData(['products'], (old) => (old || []).filter(p => p.id !== deletedId)); toast.success('Product deleted'); setDeleteId(null); },
-    onError: () => qc.invalidateQueries({ queryKey: ['products'] })
+    mutationFn: (id) => db.Product.delete(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['products'] }); toast.success('Product deleted'); setDeleteId(null); }
   });
 
   const totalValue = products.reduce((a, p) => a + ((p.production_cost || 0) * (p.stock_qty || 0)), 0);

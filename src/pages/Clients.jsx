@@ -15,6 +15,7 @@ import CreatorFilter from '@/components/shared/CreatorFilter';
 import { Button } from '@/components/ui/button';
 import { Users, UserCheck, Clock, DollarSign, Plus, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useRealtimeQuery } from '@/hooks/useRealtimeQuery';
 
 export default function Clients() {
   const { formatCurrency } = useCurrency();
@@ -27,10 +28,14 @@ export default function Clients() {
   const { data: clients = [], isLoading } = useQuery({ queryKey: ['clients'], queryFn: () => db.Client.list() });
   const { data: sales = [] } = useQuery({ queryKey: ['sales'], queryFn: () => db.Sale.list() });
 
+  // Realtime: stay live across all users/PCs
+  useRealtimeQuery('clients', ['clients']);
+  useRealtimeQuery('sales', ['sales']);
+
+
   const deleteMut = useMutation({
-    mutationFn: async (id) => { await db.Client.delete(id); return id; },
-    onSuccess: (deletedId) => { qc.setQueryData(['clients'], (old) => (old || []).filter(c => c.id !== deletedId)); toast.success('Client deleted'); setDeleteId(null); },
-    onError: () => qc.invalidateQueries({ queryKey: ['clients'] })
+    mutationFn: (id) => db.Client.delete(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); toast.success('Client deleted'); setDeleteId(null); }
   });
 
   const activeClients = clients.filter(c => c.status === 'active').length;

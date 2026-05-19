@@ -5,6 +5,7 @@ import { useCurrency } from '@/lib/CurrencyContext';
 import SummaryCard from '@/components/shared/SummaryCard';
 import PageHeader from '@/components/shared/PageHeader';
 import DashboardCharts from '@/components/dashboard/DashboardCharts';
+import { useRealtimeQuery } from '@/hooks/useRealtimeQuery';
 import {
   Users, Truck, TrendingUp, Receipt, ShoppingCart,
   DollarSign, Clock, CreditCard, Package, CheckCircle, XCircle, AlertCircle
@@ -18,6 +19,16 @@ export default function Dashboard() {
   const { data: purchases = [] } = useQuery({ queryKey: ['purchases'], queryFn: () => db.Purchase.list() });
   const { data: expenses = [] } = useQuery({ queryKey: ['expenses'], queryFn: () => db.Expense.list() });
   const { data: products = [] } = useQuery({ queryKey: ['products'], queryFn: () => db.Product.list() });
+
+  // Realtime: invalidate cache when any data changes on another PC/user.
+  // The singleton realtimeManager ensures only ONE channel per table exists
+  // even though Dashboard, Notifications, and other pages all call this.
+  useRealtimeQuery('clients', ['clients']);
+  useRealtimeQuery('suppliers', ['suppliers']);
+  useRealtimeQuery('sales', ['sales']);
+  useRealtimeQuery('purchases', ['purchases']);
+  useRealtimeQuery('expenses', ['expenses']);
+  useRealtimeQuery('products', ['products']);
 
   const totalSales = sales.reduce((s, r) => s + (r.total || 0), 0);
   const totalPurchases = purchases.reduce((s, r) => s + (r.total || 0), 0);

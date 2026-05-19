@@ -4,11 +4,16 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://aassjlvbyirldp
 const supabaseKey = import.meta.env.VITE_SUPABASE_KEY || 'sb_publishable_gtLYA9DIAKUZjSnA8T_2yw_UfQqx-rD';
 
 export const supabase = createClient(supabaseUrl, supabaseKey, {
+  realtime: {
+    params: {
+      eventsPerSecond: 10,
+    },
+  },
   auth: {
-    persistSession: true,
+    // Prevent excessive token-refresh events from triggering re-renders
     autoRefreshToken: true,
-    detectSessionInUrl: false,
-    storageKey: 'nutrimeth-auth',
+    persistSession: true,
+    detectSessionInUrl: true,
   },
 });
 
@@ -48,7 +53,6 @@ function makeEntity(table) {
 
     async create(payload) {
       const clean = stripReadonly(payload);
-      // Inject creator fields if not already present
       if (_creatorId && !clean.creator_id) clean.creator_id = _creatorId;
       if (_creatorName && !clean.creator_name) clean.creator_name = _creatorName;
       if (_creatorEmail && !clean.creator_email) clean.creator_email = _creatorEmail;
@@ -115,3 +119,50 @@ export async function uploadFile(file, bucket = 'uploads') {
   const { data } = supabase.storage.from(bucket).getPublicUrl(path);
   return { file_url: data.publicUrl };
 }
+
+// ─── Realtime Manager (singleton) ─────────────────────────────────────────
+// One shared channel per table — prevents duplicate subscriptions when
+// multiple components mount/unmount and each try to subscribe.
+class RealtimeManager {
+  constructor() {
+    this._channels = new Map(); // tableName -> { channel, listeners: Set }
+  }
+
+  /**
+   * Subscribe to a table's postgres_changes.
+   * Returns an unsubscribe function — call it in useEffect cleanup.
+   */
+  subscribe(table, callback) {
+    if (!this._channels.has(table)) {
+      const channel = supabase
+        .channel(`rt_${table}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table }, (payload) => {
+          // Notify all listeners for this table
+          const entry = this._channels.get(table);
+          if (entry) {
+            entry.listeners.forEach(fn => fn(payload));
+          }
+        })
+        .subscribe();
+
+      this._channels.set(table, { channel, listeners: new Set() });
+    }
+
+    const entry = this._channels.get(table);
+    entry.listeners.add(callback);
+
+    // Return cleanup function
+    return () => {
+      const e = this._channels.get(table);
+      if (!e) return;
+      e.listeners.delete(callback);
+      // If no more listeners, tear down the channel entirely
+      if (e.listeners.size === 0) {
+        supabase.removeChannel(e.channel);
+        this._channels.delete(table);
+      }
+    };
+  }
+}
+
+export const realtimeManager = new RealtimeManager();

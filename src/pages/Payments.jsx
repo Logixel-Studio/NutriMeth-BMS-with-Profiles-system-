@@ -18,6 +18,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, ChevronUp, Pencil, Search, SortAsc, SortDesc, Clock, CheckCircle, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { useRealtimeQuery } from '@/hooks/useRealtimeQuery';
 
 const sectionColors = {
   Sale: 'bg-emerald-500/10 text-emerald-700 border-emerald-200',
@@ -38,6 +39,12 @@ export default function Payments() {
   const { data: sales = [] } = useQuery({ queryKey: ['sales'], queryFn: () => db.Sale.list() });
   const { data: purchases = [] } = useQuery({ queryKey: ['purchases'], queryFn: () => db.Purchase.list() });
   const { data: expenses = [] } = useQuery({ queryKey: ['expenses'], queryFn: () => db.Expense.list() });
+
+  // Realtime: stay live across all users/PCs
+  useRealtimeQuery('sales', ['sales']);
+  useRealtimeQuery('purchases', ['purchases']);
+  useRealtimeQuery('expenses', ['expenses']);
+
 
   const allPayments = useMemo(() => [
     ...sales.map(s => ({ ...s, section: 'Sale', person: s.client_name, entity: 'Sale', subName: s.product_name })),
@@ -238,8 +245,9 @@ function PaymentEditDialog({ payment, onClose, qc, formatCurrency }) {
       });
     },
     onSuccess: () => {
-      // Single batch invalidation — triggers one re-render instead of three
-      qc.invalidateQueries({ predicate: q => ['sales','purchases','expenses'].includes(q.queryKey[0]) });
+      qc.invalidateQueries({ queryKey: ['sales'] });
+      qc.invalidateQueries({ queryKey: ['purchases'] });
+      qc.invalidateQueries({ queryKey: ['expenses'] });
       toast.success('Payment updated');
       onClose();
     }
