@@ -4,30 +4,15 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://aassjlvbyirldp
 const supabaseKey = import.meta.env.VITE_SUPABASE_KEY || 'sb_publishable_gtLYA9DIAKUZjSnA8T_2yw_UfQqx-rD';
 
 export const supabase = createClient(supabaseUrl, supabaseKey, {
-  realtime: {
-    params: {
-      eventsPerSecond: 10,
-    },
-  },
-  auth: {
-    // Prevent excessive token-refresh events from triggering re-renders
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: true,
-  },
+  realtime: { params: { eventsPerSecond: 10 } },
+  auth: { autoRefreshToken: true, persistSession: true, detectSessionInUrl: true },
 });
 
-// ─── Creator context (set at login) ───────────────────────────────────────
-let _creatorId = null;
-let _creatorName = null;
-let _creatorEmail = null;
-
+// ─── Creator context ───────────────────────────────────────────────────────
+let _creatorId = null, _creatorName = null, _creatorEmail = null;
 export function setCreatorContext({ id, name, email }) {
-  _creatorId = id || null;
-  _creatorName = name || null;
-  _creatorEmail = email || null;
+  _creatorId = id || null; _creatorName = name || null; _creatorEmail = email || null;
 }
-
 export function getCreatorContext() {
   return { creator_id: _creatorId, creator_name: _creatorName, creator_email: _creatorEmail };
 }
@@ -44,13 +29,11 @@ function makeEntity(table) {
       if (error) throw error;
       return (data || []).map(normalise);
     },
-
     async get(id) {
       const { data, error } = await supabase.from(table).select('*').eq('id', id).single();
       if (error) throw error;
       return normalise(data);
     },
-
     async create(payload) {
       const clean = stripReadonly(payload);
       if (_creatorId && !clean.creator_id) clean.creator_id = _creatorId;
@@ -60,19 +43,12 @@ function makeEntity(table) {
       if (error) throw error;
       return normalise(data);
     },
-
     async update(id, payload) {
       const clean = stripReadonly(payload);
-      const { data, error } = await supabase
-        .from(table)
-        .update({ ...clean, updated_at: new Date().toISOString() })
-        .eq('id', id)
-        .select()
-        .single();
+      const { data, error } = await supabase.from(table).update({ ...clean, updated_at: new Date().toISOString() }).eq('id', id).select().single();
       if (error) throw error;
       return normalise(data);
     },
-
     async delete(id) {
       const { error } = await supabase.from(table).delete().eq('id', id);
       if (error) throw error;
@@ -83,34 +59,43 @@ function makeEntity(table) {
 
 function stripReadonly(obj) {
   const copy = { ...obj };
-  delete copy.id;
-  delete copy.created_at;
-  delete copy.created_date;
+  delete copy.id; delete copy.created_at; delete copy.created_date;
   return copy;
 }
-
 function normalise(row) {
   if (!row) return row;
-  return {
-    ...row,
-    created_date: row.created_at ?? row.created_date,
-  };
+  return { ...row, created_date: row.created_at ?? row.created_date };
 }
 
-// ─── Entity map ───────────────────────────────────────────────────────────
+// ─── Entity map ────────────────────────────────────────────────────────────
 export const db = {
-  Client: makeEntity('clients'),
-  Supplier: makeEntity('suppliers'),
-  Product: makeEntity('products'),
-  Sale: makeEntity('sales'),
-  Purchase: makeEntity('purchases'),
-  Expense: makeEntity('expenses'),
-  ExpenseType: makeEntity('expense_types'),
-  PurchaseType: makeEntity('purchase_types'),
+  Client:          makeEntity('clients'),
+  Supplier:        makeEntity('suppliers'),
+  Product:         makeEntity('products'),
+  Sale:            makeEntity('sales'),
+  Purchase:        makeEntity('purchases'),
+  Expense:         makeEntity('expenses'),
+  ExpenseType:     makeEntity('expense_types'),
+  PurchaseType:    makeEntity('purchase_types'),
   CompanySettings: makeEntity('company_settings'),
+  // ── New ERP tables ──────────────────────────────────────────────────────
+  Attendance:      makeEntity('attendance'),
+  LeaveRequest:    makeEntity('leave_requests'),
+  OfficeLocation:  makeEntity('office_locations'),
+  Task:            makeEntity('tasks'),
+  PayrollRule:     makeEntity('payroll_rules'),
+  Payroll:         makeEntity('payroll'),
+  OvertimeRule:    makeEntity('overtime_rules'),
+  Department:      makeEntity('departments'),
+  Shift:           makeEntity('shifts'),
+  Notification:    makeEntity('notifications'),
+  ActivityLog:     makeEntity('activity_logs'),
+  LoginLog:        makeEntity('login_logs'),
+  EmployeeDoc:     makeEntity('employee_documents'),
+  StockLog:        makeEntity('stock_logs'),
 };
 
-// ─── File upload via Supabase Storage ─────────────────────────────────────
+// ─── File upload ───────────────────────────────────────────────────────────
 export async function uploadFile(file, bucket = 'uploads') {
   const ext = file.name.split('.').pop();
   const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
@@ -120,43 +105,22 @@ export async function uploadFile(file, bucket = 'uploads') {
   return { file_url: data.publicUrl };
 }
 
-// ─── Realtime Manager (singleton) ─────────────────────────────────────────
-// One shared channel per table — prevents duplicate subscriptions when
-// multiple components mount/unmount and each try to subscribe.
+// ─── Singleton RealtimeManager ─────────────────────────────────────────────
 class RealtimeManager {
-  constructor() {
-    this._channels = new Map(); // tableName -> { channel, listeners: Set }
-  }
-
-  /**
-   * Subscribe to a table's postgres_changes.
-   * Returns an unsubscribe function — call it in useEffect cleanup.
-   */
+  constructor() { this._channels = new Map(); }
   subscribe(table, callback) {
     if (!this._channels.has(table)) {
-      const channel = supabase
-        .channel(`rt_${table}`)
+      const channel = supabase.channel(`rt_${table}`)
         .on('postgres_changes', { event: '*', schema: 'public', table }, (payload) => {
-          // Notify all listeners for this table
-          const entry = this._channels.get(table);
-          if (entry) {
-            entry.listeners.forEach(fn => fn(payload));
-          }
-        })
-        .subscribe();
-
+          this._channels.get(table)?.listeners.forEach(fn => fn(payload));
+        }).subscribe();
       this._channels.set(table, { channel, listeners: new Set() });
     }
-
-    const entry = this._channels.get(table);
-    entry.listeners.add(callback);
-
-    // Return cleanup function
+    this._channels.get(table).listeners.add(callback);
     return () => {
       const e = this._channels.get(table);
       if (!e) return;
       e.listeners.delete(callback);
-      // If no more listeners, tear down the channel entirely
       if (e.listeners.size === 0) {
         supabase.removeChannel(e.channel);
         this._channels.delete(table);
@@ -164,5 +128,4 @@ class RealtimeManager {
     };
   }
 }
-
 export const realtimeManager = new RealtimeManager();
