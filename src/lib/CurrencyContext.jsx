@@ -1,6 +1,5 @@
-import { createContext, useContext, useCallback, useMemo } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { db } from '@/api/supabaseClient';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { base44 } from '@/api/base44Client';
 
 const CurrencyContext = createContext({
   symbol: 'Rs',
@@ -10,40 +9,28 @@ const CurrencyContext = createContext({
 });
 
 export function CurrencyProvider({ children }) {
-  const qc = useQueryClient();
+  const [symbol, setSymbol] = useState('Rs');
+  const [currency, setCurrency] = useState('PKR');
 
-  // Re-use the same React Query cache key as the Settings page uses.
-  // This means only ONE network request for settings across the whole app,
-  // and the CurrencyProvider stays in sync with any Settings page updates.
-  const { data: settingsList = [] } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => db.CompanySettings.list(),
-    staleTime: 5 * 60_000, // settings change rarely — stay fresh 5 minutes
-  });
+  const loadSettings = useCallback(async () => {
+    try {
+      const list = await base44.entities.CompanySettings.list();
+      if (list && list.length > 0) {
+        setSymbol(list[0].currency_symbol || 'Rs');
+        setCurrency(list[0].currency || 'PKR');
+      }
+    } catch {}
+  }, []);
 
-  const settings = settingsList[0] || {};
-  const symbol = settings.currency_symbol || 'Rs';
-  const currency = settings.currency || 'PKR';
-
-  // refreshSettings just invalidates the cache — no direct fetch needed
-  const refreshSettings = useCallback(() => {
-    qc.invalidateQueries({ queryKey: ['settings'] });
-  }, [qc]);
+  useEffect(() => { loadSettings(); }, [loadSettings]);
 
   const formatCurrency = useCallback((amount) => {
     if (amount == null || isNaN(amount)) return `${symbol}0.00`;
-    return `${symbol}${Number(amount).toLocaleString('en-US', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
+    return `${symbol}${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }, [symbol]);
 
-  const value = useMemo(() => ({
-    symbol, currency, formatCurrency, refreshSettings,
-  }), [symbol, currency, formatCurrency, refreshSettings]);
-
   return (
-    <CurrencyContext.Provider value={value}>
+    <CurrencyContext.Provider value={{ symbol, currency, formatCurrency, refreshSettings: loadSettings }}>
       {children}
     </CurrencyContext.Provider>
   );

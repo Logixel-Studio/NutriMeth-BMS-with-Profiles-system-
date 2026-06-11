@@ -1,201 +1,152 @@
-import React, { createContext, useState, useContext, useEffect, useCallback, useRef, useMemo } from 'react';
-import { supabase, setCreatorContext } from '@/api/supabaseClient';
+import React, { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
+import { supabase } from '@/lib/supabase';
+import { auth as supabaseAuth } from '@/api/supabaseAdapter';
 
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [profile, setProfile] = useState(null);
+  const [user,            setUser]            = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
-  const [authChecked, setAuthChecked] = useState(false);
-
-  const [isLoadingPublicSettings] = useState(false);
-  const [authError] = useState(null);
+  const [isLoadingAuth,   setIsLoadingAuth]   = useState(true);
+  const [authChecked,     setAuthChecked]     = useState(false);
   const [appPublicSettings] = useState({ id: 'nutrimeth', public_settings: {} });
 
-  const userIdRef = useRef(null);
-  const loadingDoneRef = useRef(false); // guard so setLoadingDone only fires once
+  const resolving = useRef(false);
+  const mounted   = useRef(true);
 
-  const fetchProfile = useCallback(async (userId) => {
-    if (!userId) return null;
+  // ── Resolve user profile from Supabase profiles table ──────────────────────
+  const resolveProfile = useCallback(async (authUser) => {
+    if (resolving.current) return;
+    resolving.current = true;
     try {
-      const { data } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-      if (data) {
-        setProfile(data);
-        setCreatorContext({ id: data.id, name: data.full_name, email: data.email });
+      // Try to get profile
+      const { data: profile, error: fetchErr } = await supabase
+        .from('profiles').select('*').eq('id', authUser.id).maybeSingle();
+
+      let finalProfile = profile;
+
+      // If profiles table exists but no row → create one
+      if (!finalProfile && !fetchErr?.message?.includes('404')) {
+        const { data: created } = await supabase.from('profiles').insert({
+          id:         authUser.id,
+          email:      authUser.email,
+          full_name:  authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || '',
+          role:       authUser.user_metadata?.role || 'employee',
+          avatar_url: authUser.user_metadata?.avatar_url || '',
+        }).select().maybeSingle();
+        finalProfile = created;
       }
-      return data;
-    } catch {
-      return null;
+
+      if (!mounted.current) return;
+
+      const merged = {
+        id:         authUser.id,
+        email:      authUser.email,
+        full_name:  finalProfile?.full_name  || authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'User',
+        role:       finalProfile?.role       || authUser.user_metadata?.role || 'employee',
+        avatar_url: finalProfile?.avatar_url || '',
+        ...finalProfile,
+      };
+
+      setUser(merged);
+      setIsAuthenticated(true);
+    } catch (err) {
+      console.warn('[AuthContext] resolveProfile error (non-fatal):', err.message);
+      if (!mounted.current) return;
+      // Still authenticate — just use auth metadata
+      setUser({
+        id:        authUser.id,
+        email:     authUser.email,
+        full_name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'User',
+        role:      authUser.user_metadata?.role || 'employee',
+        avatar_url:'',
+      });
+      setIsAuthenticated(true);
+    } finally {
+      resolving.current = false;
+      if (mounted.current) { setIsLoadingAuth(false); setAuthChecked(true); }
     }
   }, []);
 
-  const ensureProfile = useCallback(async (authUser) => {
-    if (!authUser) return null;
-    const fullName =
-      authUser.user_metadata?.full_name ||
-      authUser.email?.split('@')[0] ||
-      'User';
-    try {
-      const { data: existing } = await supabase
-        .from('user_profiles')
-        .select('id')
-        .eq('id', authUser.id)
-        .maybeSingle();
-      if (!existing) {
-        await supabase.from('user_profiles').insert([{
-          id: authUser.id,
-          email: authUser.email,
-          full_name: fullName,
-          avatar_url: authUser.user_metadata?.avatar_url || null,
-        }]);
-      }
-    } catch {}
-    return fetchProfile(authUser.id);
-  }, [fetchProfile]);
-
-  const handleSignOut = useCallback(() => {
-    setUser(null);
-    setProfile(null);
-    setIsAuthenticated(false);
-    userIdRef.current = null;
-    setCreatorContext({ id: null, name: null, email: null });
-  }, []);
+  // ── Force-refresh profile (call after role change) ────────────────────────
+  const refreshProfile = useCallback(async () => {
+    supabaseAuth.clearCache();
+    resolving.current = false;
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (authUser) await resolveProfile(authUser);
+  }, [resolveProfile]);
 
   useEffect(() => {
-    let mounted = true;
+    mounted.current = true;
 
-    // CRITICAL FIX: setLoadingDone is ALWAYS called exactly once.
-    // The previous version used fetchingRef as a lock — when INITIAL_SESSION
-    // fired and set fetchingRef=true, getSession()'s handleUser bailed out,
-    // and setIsLoadingAuth(false) was NEVER called → infinite loading screen.
-    const setLoadingDone = () => {
-      if (!mounted || loadingDoneRef.current) return;
-      loadingDoneRef.current = true;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted.current) return;
+      if (session?.user) {
+        resolveProfile(session.user);
+      } else {
+        setIsAuthenticated(false);
+        setUser(null);
+        setIsLoadingAuth(false);
+        setAuthChecked(true);
+      }
+    }).catch(() => {
+      if (!mounted.current) return;
+      setIsAuthenticated(false);
       setIsLoadingAuth(false);
       setAuthChecked(true);
-    };
+    });
 
-    const handleUser = async (authUser) => {
-      if (!mounted) return;
-      if (authUser.id === userIdRef.current) return; // already handled
-      userIdRef.current = authUser.id;
-      setUser(authUser);
-      setIsAuthenticated(true);
-      // Profile load is fire-and-forget — does NOT block the loading screen
-      ensureProfile(authUser).catch(() => {});
-    };
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted.current) return;
+      supabaseAuth.clearCache();
 
-    // Step 1: getSession() — authoritative on page load/reload
-    // .finally() guarantees setLoadingDone() always runs
-    supabase.auth.getSession()
-      .then(async ({ data: { session } }) => {
-        if (!mounted) return;
-        if (session?.user) {
-          await handleUser(session.user);
-        } else {
-          handleSignOut();
-        }
-      })
-      .catch(() => {
-        if (mounted) handleSignOut();
-      })
-      .finally(setLoadingDone); // ← ALWAYS clears loading screen
-
-    // Step 2: Auth state listener for post-mount changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (!mounted) return;
-
-        if (event === 'TOKEN_REFRESHED') return; // silent, ignore
-
-        if (event === 'INITIAL_SESSION') {
-          // Fires immediately — handle only if getSession() lost the race
-          if (!userIdRef.current && session?.user) {
-            await handleUser(session.user);
-          } else if (!session) {
-            handleSignOut();
-          }
-          setLoadingDone(); // belt-and-suspenders: clear loading if still showing
-          return;
-        }
-
-        if (event === 'SIGNED_IN' && session?.user) {
-          await handleUser(session.user);
-          setLoadingDone();
-          return;
-        }
-
-        if (event === 'SIGNED_OUT') {
-          handleSignOut();
-          setLoadingDone();
-          return;
-        }
-
-        if (event === 'USER_UPDATED' && session?.user) {
-          setUser(session.user); // metadata update only, no profile re-fetch
-        }
+      if (event === 'SIGNED_IN' && session?.user) {
+        resolving.current = false;
+        resolveProfile(session.user);
+      } else if (event === 'SIGNED_OUT') {
+        resolving.current = false;
+        setUser(null);
+        setIsAuthenticated(false);
+        setIsLoadingAuth(false);
+        setAuthChecked(true);
       }
-    );
+      // TOKEN_REFRESHED intentionally ignored — caused infinite loop
+    });
 
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
-  }, [ensureProfile, handleSignOut]);
+    return () => { mounted.current = false; subscription.unsubscribe(); };
+  }, [resolveProfile]);
 
   const logout = useCallback(async () => {
-    handleSignOut();
+    supabaseAuth.clearCache();
+    resolving.current = false;
     await supabase.auth.signOut();
-  }, [handleSignOut]);
+    setUser(null);
+    setIsAuthenticated(false);
+    window.location.href = '/login';
+  }, []);
 
-  const checkUserAuth = useCallback(async () => {
-    try {
-      setIsLoadingAuth(true);
-      loadingDoneRef.current = false;
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user && session.user.id !== userIdRef.current) {
-        setUser(session.user);
-        setIsAuthenticated(true);
-        userIdRef.current = session.user.id;
-        await ensureProfile(session.user);
-      } else if (!session) {
-        handleSignOut();
-      }
-    } catch {}
-    loadingDoneRef.current = true;
-    setIsLoadingAuth(false);
-    setAuthChecked(true);
-  }, [ensureProfile, handleSignOut]);
-
-  const checkAppState = useCallback(async () => { await checkUserAuth(); }, [checkUserAuth]);
-  const navigateToLogin = useCallback(() => {}, []);
-
-  const displayName = profile?.full_name
-    || user?.user_metadata?.full_name
-    || user?.email?.split('@')[0]
-    || 'User';
-
-  const value = useMemo(() => ({
-    user, profile, displayName, isAuthenticated, isLoadingAuth,
-    isLoadingPublicSettings, authError, appPublicSettings, authChecked,
-    logout, navigateToLogin, checkUserAuth, checkAppState, fetchProfile, ensureProfile,
-  }), [
-    user, profile, displayName, isAuthenticated, isLoadingAuth, authChecked,
-    logout, checkUserAuth, checkAppState, fetchProfile, ensureProfile,
-    isLoadingPublicSettings, authError, appPublicSettings, navigateToLogin,
-  ]);
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{
+      user,
+      isAuthenticated,
+      isLoadingAuth,
+      isLoadingPublicSettings: false,
+      authError: null,
+      appPublicSettings,
+      authChecked,
+      logout,
+      refreshProfile,          // ← call this after changing role in Supabase
+      navigateToLogin: () => { supabaseAuth.clearCache(); window.location.href = '/login'; },
+      checkUserAuth: refreshProfile,
+      checkAppState: refreshProfile,
+    }}>
+      {children}
+    </AuthContext.Provider>
+  );
 };
 
 export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within an AuthProvider');
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within an AuthProvider');
+  return ctx;
 };

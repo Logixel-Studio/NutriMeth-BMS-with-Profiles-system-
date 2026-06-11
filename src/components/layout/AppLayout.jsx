@@ -47,27 +47,29 @@ export default function AppLayout() {
         )}
       </AnimatePresence>
 
-      {/*
-        FIX: Replaced the dynamic <style> injection in MainContent with a
-        CSS custom property on the element. Injecting a <style> tag on every
-        render forces a full stylesheet re-parse and layout recalculation in the
-        browser — a major source of jank/freeze when sidebarW changed.
-      */}
-      <div
-        className="flex flex-col min-h-screen lg:transition-[margin-left] lg:duration-300"
-        style={{ '--sidebar-w': `${sidebarW}px` }}
-      >
-        {/* On large screens, push content right of the fixed sidebar */}
-        <style>{`@media (min-width: 1024px) { .sidebar-offset { margin-left: var(--sidebar-w, 260px); } }`}</style>
-        <div className="sidebar-offset flex flex-col min-h-screen">
-          <Topbar onMobileMenuToggle={() => setMobileOpen(!mobileOpen)} />
-          <main className="flex-1 p-3 sm:p-4 lg:p-5 xl:p-6 overflow-x-hidden w-full">
-            <div className="w-full max-w-full">
-              <Outlet />
-            </div>
-          </main>
-        </div>
-      </div>
+      {/* Main area pushed right on desktop */}
+      <MainContent sidebarW={sidebarW} onMobileMenuToggle={() => setMobileOpen(!mobileOpen)} />
     </div>
+  );
+}
+
+function MainContent({ sidebarW, onMobileMenuToggle }) {
+  // We use a CSS trick: on lg, add left margin equal to sidebar width
+  return (
+    <>
+      <style>{`
+        @media (min-width: 1024px) {
+          .main-content-area { margin-left: ${sidebarW}px; transition: margin-left 0.3s ease; }
+        }
+      `}</style>
+      <div className="main-content-area flex flex-col min-h-screen">
+        <Topbar onMobileMenuToggle={onMobileMenuToggle} />
+        <main className="flex-1 p-3 sm:p-4 lg:p-5 xl:p-6 overflow-x-hidden w-full">
+          <div className="w-full max-w-full">
+            <Outlet />
+          </div>
+        </main>
+      </div>
+    </>
   );
 }

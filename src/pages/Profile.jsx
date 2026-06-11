@@ -1,66 +1,61 @@
 import { useState } from 'react';
-import { supabase, uploadFile } from '@/api/supabaseClient';
+import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/AuthContext';
+import { auth as supabaseAuth } from '@/api/supabaseAdapter';
 import PageHeader from '@/components/shared/PageHeader';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { UserCircle, Mail, Shield, Calendar, Loader2, Save } from 'lucide-react';
+import { UserCircle, Mail, Shield, Loader2, RefreshCw } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
-import { formatDate } from '@/lib/formatters';
+import { ROLE_LABELS, ROLE_COLORS } from '@/lib/roleConfig';
+import { cn } from '@/lib/utils';
 
 export default function Profile() {
-  const { user, profile, displayName, fetchProfile } = useAuth();
-  const [editName, setEditName] = useState('');
-  const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
-
-  const currentName = profile?.full_name || user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User';
-  const currentAvatar = profile?.avatar_url || user?.user_metadata?.avatar_url || '';
+  const { user, refreshProfile } = useAuth();
+  const [uploading,   setUploading]   = useState(false);
+  const [refreshing,  setRefreshing]  = useState(false);
+  const [avatarUrl,   setAvatarUrl]   = useState(user?.avatar_url || '');
 
   const handleUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
     try {
-      const { file_url } = await uploadFile(file, 'avatars');
-      // Update DB only (avoid triggering auth state change loop)
-      const { error } = await supabase
-        .from('user_profiles')
-        .update({ avatar_url: file_url })
-        .eq('id', user.id);
-      if (error) throw error;
-      // Refresh profile state directly without triggering auth cycle
-      if (user) await fetchProfile(user.id);
+      const ext  = file.name.split('.').pop();
+      const path = `avatars/${user.id}.${ext}`;
+      const { error: uploadErr } = await supabase.storage
+        .from('nutrimeth-files').upload(path, file, { upsert: true });
+      if (uploadErr) throw uploadErr;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('nutrimeth-files').getPublicUrl(path);
+
+      await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id);
+      setAvatarUrl(publicUrl);
+      supabaseAuth.clearCache();
       toast.success('Profile photo updated');
     } catch (err) {
-      toast.error('Upload failed: ' + err.message);
+      toast.error(err.message || 'Upload failed');
+    } finally {
+      setUploading(false);
     }
-    setUploading(false);
   };
 
-  const handleSaveName = async () => {
-    if (!editName.trim()) { toast.error('Name cannot be empty'); return; }
-    setSaving(true);
+  const handleRefresh = async () => {
+    setRefreshing(true);
     try {
-      // Update DB profile — single operation, no auth metadata update to avoid loops
-      const { error } = await supabase
-        .from('user_profiles')
-        .update({ full_name: editName.trim() })
-        .eq('id', user.id);
-      if (error) throw error;
-      // Refresh profile state
-      if (user) await fetchProfile(user.id);
-      setEditing(false);
-      toast.success('Name updated');
+      await refreshProfile();
+      toast.success('Profile refreshed — role updated');
     } catch (err) {
-      toast.error(err.message);
+      toast.error('Refresh failed');
+    } finally {
+      setRefreshing(false);
     }
-    setSaving(false);
   };
 
   if (!user) return (
@@ -69,38 +64,45 @@ export default function Profile() {
     </div>
   );
 
+  const roleLabel = ROLE_LABELS?.[user.role] || user.role;
+  const roleColor = ROLE_COLORS?.[user.role] || '';
+
   return (
     <div>
-      <PageHeader title="Profile" description="Your personal account information" />
+      <PageHeader title="Profile" description="Your account information">
+        <Button variant="outline" size="sm" onClick={handleRefresh} disabled={refreshing} className="gap-2">
+          <RefreshCw className={cn('w-4 h-4', refreshing && 'animate-spin')} />
+          Refresh Role
+        </Button>
+      </PageHeader>
 
       <div className="max-w-2xl mx-auto space-y-6">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><UserCircle className="w-5 h-5" /> Profile</CardTitle>
+              <CardTitle className="flex items-center gap-2"><UserCircle className="w-5 h-5" /> Profile Photo</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent>
               <div className="flex items-center gap-6">
-                <div className="relative">
-                  <Avatar className="w-20 h-20">
-                    <AvatarImage src={currentAvatar} />
-                    <AvatarFallback className="text-2xl bg-primary/10 text-primary">
-                      {currentName?.charAt(0)?.toUpperCase() || 'U'}
-                    </AvatarFallback>
-                  </Avatar>
-                  {uploading && (
-                    <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center">
-                      <Loader2 className="w-5 h-5 animate-spin text-white" />
-                    </div>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <p className="text-lg font-semibold">{currentName}</p>
+                <Avatar className="w-20 h-20">
+                  <AvatarImage src={avatarUrl} />
+                  <AvatarFallback className="text-2xl bg-primary/10 text-primary">
+                    {user.full_name?.charAt(0)?.toUpperCase() || 'U'}
+                  </AvatarFallback>
+                </Avatar>
+                <div>
+                  <p className="text-lg font-semibold">{user.full_name || 'User'}</p>
                   <p className="text-sm text-muted-foreground">{user.email}</p>
-                  <label className="cursor-pointer text-xs text-primary hover:underline">
-                    Change photo
-                    <input type="file" accept="image/*" onChange={handleUpload} className="hidden" disabled={uploading} />
-                  </label>
+                  <Badge className={cn('mt-1 text-xs', roleColor)}>{roleLabel}</Badge>
+                  <div className="mt-3">
+                    <Label htmlFor="avatar-upload"
+                      className="cursor-pointer text-xs bg-primary text-primary-foreground px-3 py-1.5 rounded-md hover:bg-primary/90 transition flex items-center gap-1 w-fit">
+                      {uploading && <Loader2 className="w-3 h-3 animate-spin" />}
+                      {uploading ? 'Uploading...' : 'Change Photo'}
+                    </Label>
+                    <Input id="avatar-upload" type="file" accept="image/*"
+                      onChange={handleUpload} className="hidden" disabled={uploading} />
+                  </div>
                 </div>
               </div>
             </CardContent>
@@ -113,43 +115,19 @@ export default function Profile() {
               <CardTitle className="flex items-center gap-2"><Mail className="w-5 h-5" /> Account Details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div>
-                <Label>Display Name</Label>
-                {editing ? (
-                  <div className="flex gap-2 mt-1">
-                    <Input value={editName} onChange={e => setEditName(e.target.value)} autoFocus />
-                    <Button size="sm" onClick={handleSaveName} disabled={saving}>
-                      {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
-                  </div>
-                ) : (
-                  <div className="flex gap-2 mt-1">
-                    <Input value={currentName} readOnly className="bg-muted" />
-                    {/* <Button size="sm" variant="outline" onClick={() => { setEditName(currentName); setEditing(true); }}>Edit</Button> */}
-                  </div>
-                )}
-              </div>
-              <div>
-                <Label>Email</Label>
-                <Input value={user.email || ''} readOnly className="mt-1 bg-muted" />
-              </div>
+              <div><Label>Full Name</Label><Input value={user.full_name || ''} readOnly className="bg-muted" /></div>
+              <div><Label>Email</Label><Input value={user.email || ''} readOnly className="bg-muted" /></div>
               <div>
                 <Label>Role</Label>
                 <div className="flex items-center gap-2 mt-1">
                   <Shield className="w-4 h-4 text-primary" />
-                  <span className="text-sm font-medium capitalize">Team Member</span>
+                  <span className="text-sm font-medium">{roleLabel}</span>
+                  <Badge variant="outline" className={cn('text-xs', roleColor)}>{user.role}</Badge>
                 </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  If your role was recently changed by an admin, click "Refresh Role" above.
+                </p>
               </div>
-              {profile?.created_at && (
-                <div>
-                  <Label>Member Since</Label>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Calendar className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm">{formatDate(profile.created_at)}</span>
-                  </div>
-                </div>
-              )}
             </CardContent>
           </Card>
         </motion.div>

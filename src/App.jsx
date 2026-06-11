@@ -1,17 +1,14 @@
-import { Toaster } from "@/components/ui/toaster";
-import { QueryClientProvider } from '@tanstack/react-query';
-import { queryClientInstance } from '@/lib/query-client';
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
-import PageNotFound from './lib/PageNotFound';
+import { Toaster } from "@/components/ui/sonner"
+import { QueryClientProvider } from '@tanstack/react-query'
+import { queryClientInstance } from '@/lib/query-client'
+import { BrowserRouter, Route, Routes, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
-import { RoleProvider } from '@/lib/RoleContext';
-import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import { CurrencyProvider } from '@/lib/CurrencyContext';
-import AuthPage from '@/pages/AuthPage';
-import { useState, useEffect } from 'react';
-import AppLayout from '@/components/layout/AppLayout';
+import { PermissionsProvider } from '@/lib/PermissionsContext';
+import PageNotFound from './lib/PageNotFound';
 
-// ── Existing pages (all preserved) ──────────────────────────────────────────
+import Login from '@/pages/Login';
+import AppLayout from '@/components/layout/AppLayout';
 import Dashboard from '@/pages/Dashboard';
 import Clients from '@/pages/Clients';
 import Suppliers from '@/pages/Suppliers';
@@ -23,181 +20,107 @@ import Payments from '@/pages/Payments';
 import Stock from '@/pages/Stock';
 import Settings from '@/pages/Settings';
 import Profile from '@/pages/Profile';
-import Team from '@/pages/Team';
+import Employees from '@/pages/Employees';
+import Attendance from '@/pages/Attendance';
+import PayrollPage from '@/pages/PayrollPage';
+import Tasks from '@/pages/Tasks';
+import HRM from '@/pages/HRM';
+import MyAttendance from '@/pages/employee/MyAttendance';
+import MyTasks from '@/pages/employee/MyTasks';
+import MyPayroll from '@/pages/employee/MyPayroll';
+import MyLeaves from '@/pages/employee/MyLeaves';
+import UserManagement from '@/pages/admin/UserManagement';
+import OfficeLocations from '@/pages/OfficeLocations';
+import ActivityLogs from '@/pages/ActivityLogs';
+import Reports from '@/pages/Reports';
+import Permissions from '@/pages/Permissions';
+import Invoices from '@/pages/Invoices';
+import ActionCenter from '@/pages/ActionCenter';
+import Investments from '@/pages/Investments';
 
-// ── Super Admin ──────────────────────────────────────────────────────────────
-import SuperAdminDashboard from '@/pages/superadmin/SuperAdminDashboard';
-import UserManagement from '@/pages/superadmin/UserManagement';
-import AuditLogs from '@/pages/superadmin/AuditLogs';
-import SystemMonitoring from '@/pages/superadmin/SystemMonitoring';
+// Auth guard
+function RequireAuth({ children }) {
+  const { isAuthenticated, isLoadingAuth, authChecked } = useAuth();
+  const location = useLocation();
 
-// ── Admin ────────────────────────────────────────────────────────────────────
-import AdminAttendance from '@/pages/admin/AdminAttendance';
-import AdminPayroll from '@/pages/admin/AdminPayroll';
-import AdminReports from '@/pages/admin/AdminReports';
-
-// ── Manager ──────────────────────────────────────────────────────────────────
-import ManagerDashboard from '@/pages/manager/ManagerDashboard';
-import TaskManagement from '@/pages/manager/TaskManagement';
-
-// ── HR ───────────────────────────────────────────────────────────────────────
-import HRDashboard from '@/pages/hr/HRDashboard';
-import GPSAttendance from '@/pages/hr/GPSAttendance';
-import Payroll from '@/pages/hr/Payroll';
-import LeaveManagement from '@/pages/hr/LeaveManagement';
-import Hiring from '@/pages/hr/Hiring';
-import DocumentReview from '@/pages/hr/DocumentReview';
-
-// ── Accountant ───────────────────────────────────────────────────────────────
-import AccountantDashboard from '@/pages/accountant/AccountantDashboard';
-import ProfitLoss from '@/pages/accountant/ProfitLoss';
-
-// ── Inventory ────────────────────────────────────────────────────────────────
-import InventoryDashboard from '@/pages/inventory/InventoryDashboard';
-import Warehouses from '@/pages/inventory/Warehouses';
-import StockMovement from '@/pages/inventory/StockMovement';
-
-// ── Sales Manager ─────────────────────────────────────────────────────────────
-import SalesManagerDashboard from '@/pages/salesmanager/SalesManagerDashboard';
-import SalesTargets from '@/pages/salesmanager/SalesTargets';
-
-// ── Employee ──────────────────────────────────────────────────────────────────
-import EmployeeDashboard from '@/pages/employee/EmployeeDashboard';
-import EmployeeLeaves from '@/pages/employee/EmployeeLeaves';
-import EmployeeDocuments from '@/pages/employee/EmployeeDocuments';
-
-const AuthenticatedApp = () => {
-  const { isLoadingAuth, isLoadingPublicSettings, authError, isAuthenticated, navigateToLogin } = useAuth();
-  const [forceReady, setForceReady] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setForceReady(true), 5000);
-    return () => clearTimeout(t);
-  }, []);
-  const stillLoading = (isLoadingPublicSettings || isLoadingAuth) && !forceReady;
-
-  if (stillLoading) {
+  if (isLoadingAuth || !authChecked) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 border-4 border-muted border-t-primary rounded-full animate-spin" />
-          <p className="text-sm text-muted-foreground">Loading NUTRIMETH ERP…</p>
+          <p className="text-sm text-muted-foreground">Loading NUTRIMETH...</p>
         </div>
       </div>
     );
   }
-  if (!isAuthenticated) return <AuthPage />;
-  if (authError) {
-    if (authError.type === 'user_not_registered') return <UserNotRegisteredError />;
-    if (authError.type === 'auth_required') { navigateToLogin(); return null; }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
+  return children;
+}
 
+function AppRoutes() {
   return (
-    <RoleProvider>
-      <Routes>
-        <Route element={<AppLayout />}>
-          {/* ── Existing Routes (all preserved) ── */}
-          <Route path="/"            element={<Dashboard />} />
-          <Route path="/clients"     element={<Clients />} />
-          <Route path="/suppliers"   element={<Suppliers />} />
-          <Route path="/purchasing"  element={<Purchasing />} />
-          <Route path="/expenses"    element={<Expenses />} />
-          <Route path="/products"    element={<Products />} />
-          <Route path="/sales"       element={<Sales />} />
-          <Route path="/payments"    element={<Payments />} />
-          <Route path="/stock"       element={<Stock />} />
-          <Route path="/settings"    element={<Settings />} />
-          <Route path="/profile"     element={<Profile />} />
-          <Route path="/team"        element={<Team />} />
+    <Routes>
+      {/* Public */}
+      <Route path="/login" element={<Login />} />
 
-          {/* ── Super Admin ── */}
-          <Route path="/superadmin"            element={<SuperAdminDashboard />} />
-          <Route path="/superadmin/users"      element={<UserManagement />} />
-          <Route path="/superadmin/audit"      element={<AuditLogs />} />
-          <Route path="/superadmin/monitoring" element={<SystemMonitoring />} />
-          <Route path="/superadmin/companies"  element={<UserManagement />} />
-          <Route path="/superadmin/roles"      element={<UserManagement />} />
-          <Route path="/superadmin/analytics"  element={<SuperAdminDashboard />} />
-          <Route path="/superadmin/security"   element={<AuditLogs />} />
-          <Route path="/superadmin/database"   element={<SystemMonitoring />} />
-          <Route path="/superadmin/backups"    element={<SystemMonitoring />} />
-
-          {/* ── Admin ── */}
-          <Route path="/admin/attendance" element={<AdminAttendance />} />
-          <Route path="/admin/payroll"    element={<AdminPayroll />} />
-          <Route path="/admin/reports"    element={<AdminReports />} />
-
-          {/* ── Manager ── */}
-          <Route path="/manager"             element={<ManagerDashboard />} />
-          <Route path="/manager/tasks"       element={<TaskManagement />} />
-          <Route path="/manager/attendance"  element={<AdminAttendance />} />
-          <Route path="/manager/performance" element={<ManagerDashboard />} />
-          <Route path="/manager/projects"    element={<TaskManagement />} />
-          <Route path="/manager/approvals"   element={<LeaveManagement />} />
-          <Route path="/manager/reports"     element={<AdminReports />} />
-
-          {/* ── HR ── */}
-          <Route path="/hr"                  element={<HRDashboard />} />
-          <Route path="/hr/employees"        element={<UserManagement />} />
-          <Route path="/hr/attendance"       element={<AdminAttendance />} />
-          <Route path="/hr/gps-attendance"   element={<GPSAttendance />} />
-          <Route path="/hr/leaves"           element={<LeaveManagement />} />
-          <Route path="/hr/payroll"          element={<Payroll />} />
-          <Route path="/hr/salary"           element={<Payroll />} />
-          <Route path="/hr/hiring"           element={<Hiring />} />
-          <Route path="/hr/performance"      element={<ManagerDashboard />} />
-          <Route path="/hr/shifts"           element={<AdminAttendance />} />
-          <Route path="/hr/documents"        element={<DocumentReview />} />
-          <Route path="/hr/reports"          element={<AdminReports />} />
-
-          {/* ── Accountant ── */}
-          <Route path="/accountant"          element={<AccountantDashboard />} />
-          <Route path="/accountant/payroll"  element={<Payroll />} />
-          <Route path="/accountant/taxes"    element={<AdminReports />} />
-          <Route path="/accountant/pnl"      element={<ProfitLoss />} />
-          <Route path="/accountant/reports"  element={<AdminReports />} />
-
-          {/* ── Inventory ── */}
-          <Route path="/inventory"             element={<InventoryDashboard />} />
-          <Route path="/inventory/warehouses"  element={<Warehouses />} />
-          <Route path="/inventory/movement"    element={<StockMovement />} />
-          <Route path="/inventory/alerts"      element={<InventoryDashboard />} />
-          <Route path="/inventory/barcodes"    element={<InventoryDashboard />} />
-          <Route path="/inventory/reports"     element={<AdminReports />} />
-
-          {/* ── Sales Manager ── */}
-          <Route path="/salesmanager"          element={<SalesManagerDashboard />} />
-          <Route path="/salesmanager/targets"  element={<SalesTargets />} />
-          <Route path="/salesmanager/reports"  element={<AdminReports />} />
-
-          {/* ── Employee ── */}
-          <Route path="/employee"              element={<EmployeeDashboard />} />
-          <Route path="/employee/attendance"   element={<GPSAttendance />} />
-          <Route path="/employee/tasks"        element={<TaskManagement />} />
-          <Route path="/employee/leaves"       element={<EmployeeLeaves />} />
-          <Route path="/employee/salary"       element={<Payroll />} />
-          <Route path="/employee/performance"  element={<ManagerDashboard />} />
-          <Route path="/employee/timeline"     element={<AuditLogs />} />
-          <Route path="/employee/documents"    element={<EmployeeDocuments />} />
-        </Route>
-        <Route path="*" element={<PageNotFound />} />
-      </Routes>
-    </RoleProvider>
-  );
-};
-
-function App() {
-  return (
-    <AuthProvider>
-      <QueryClientProvider client={queryClientInstance}>
-        <CurrencyProvider>
-          <Router>
-            <AuthenticatedApp />
-          </Router>
-          <Toaster />
-        </CurrencyProvider>
-      </QueryClientProvider>
-    </AuthProvider>
+      {/* Protected */}
+      <Route path="/*" element={
+        <RequireAuth>
+          <Routes>
+            <Route element={<AppLayout />}>
+              <Route index                     element={<Dashboard />} />
+              <Route path="clients"            element={<Clients />} />
+              <Route path="suppliers"          element={<Suppliers />} />
+              <Route path="purchasing"         element={<Purchasing />} />
+              <Route path="expenses"           element={<Expenses />} />
+              <Route path="products"           element={<Products />} />
+              <Route path="sales"              element={<Sales />} />
+              <Route path="payments"           element={<Payments />} />
+              <Route path="stock"              element={<Stock />} />
+              <Route path="employees"          element={<Employees />} />
+              <Route path="attendance"         element={<Attendance />} />
+              <Route path="payroll"            element={<PayrollPage />} />
+              <Route path="tasks"              element={<Tasks />} />
+              <Route path="hrm"                element={<HRM />} />
+              <Route path="my-attendance"      element={<MyAttendance />} />
+              <Route path="my-tasks"           element={<MyTasks />} />
+              <Route path="my-payroll"         element={<MyPayroll />} />
+              <Route path="my-leaves"          element={<MyLeaves />} />
+              <Route path="user-management"    element={<UserManagement />} />
+              <Route path="office-locations"   element={<OfficeLocations />} />
+              <Route path="activity-logs"      element={<ActivityLogs />} />
+              <Route path="reports"            element={<Reports />} />
+              <Route path="permissions"        element={<Permissions />} />
+              <Route path="invoices"           element={<Invoices />} />
+              <Route path="action-center" element={<ActionCenter />} />
+              <Route path="investments" element={<Investments />} />
+              <Route path="settings"           element={<Settings />} />
+              <Route path="profile"            element={<Profile />} />
+              <Route path="*"                  element={<PageNotFound />} />
+            </Route>
+          </Routes>
+        </RequireAuth>
+      } />
+    </Routes>
   );
 }
 
-export default App;
+export default function App() {
+  return (
+    <QueryClientProvider client={queryClientInstance}>
+      <AuthProvider>
+        <BrowserRouter>
+          <CurrencyProvider>
+            <PermissionsProvider>
+              <AppRoutes />
+              <Toaster richColors position="top-right" />
+            </PermissionsProvider>
+          </CurrencyProvider>
+        </BrowserRouter>
+      </AuthProvider>
+    </QueryClientProvider>
+  );
+}
