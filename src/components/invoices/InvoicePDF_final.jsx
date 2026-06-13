@@ -225,10 +225,10 @@ function buildPage(invoice, items, pageNum, totalPages, isLast, companySettings 
       <!-- BILL TO + META -->
       <div class="inv-meta-section">
         <div class="bill-to-block">
-          <div class="section-label">Bill To</div>
-          <div class="field-row"><span class="fl">Client Name :</span><span class="fv">${escHtml(invoice.party_name) || '—'}</span></div>
-          <div class="field-row"><span class="fl">Client Number:</span><span class="fv">${escHtml(invoice.party_phone) || '—'}</span></div>
-          <div class="field-row"><span class="fl">Client Address:</span><span class="fv">${escHtml(invoice.party_address) || '—'}</span></div>
+          <div class="section-label">${invoice.invoice_type === 'supplier' ? 'Bill From' : 'Bill To'}</div>
+          <div class="field-row"><span class="fl">${invoice.invoice_type === 'supplier' ? 'Supplier Name   :' : 'Client Name :'}</span><span class="fv">${escHtml(invoice.party_name) || '—'}</span></div>
+          <div class="field-row"><span class="fl">${invoice.invoice_type === 'supplier' ? 'Supplier Number :' : 'Client Number:'}</span><span class="fv">${escHtml(invoice.party_phone) || '—'}</span></div>
+          <div class="field-row"><span class="fl">${invoice.invoice_type === 'supplier' ? 'Supplier Address:' : 'Client Address:'}</span><span class="fv">${escHtml(invoice.party_address) || '—'}</span></div>
         </div>
         <div class="meta-block">
           <div class="meta-row"><span class="ml">Invoice Number :</span><span class="mv">${escHtml(invoice.invoice_number)}</span></div>
