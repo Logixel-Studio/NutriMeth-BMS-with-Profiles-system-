@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import SearchableSelect from '@/components/shared/SearchableSelect';
 import { toast } from 'sonner';
 import { Plus, Trash2 } from 'lucide-react';
+import { autoInvoiceFromPurchase } from '@/lib/autoInvoice';
 
 const emptyItem = () => ({ purchase_type_id: '', purchase_type_name: '', qty: 1, unit_price: 0, total: 0, description: '' });
 
@@ -123,9 +124,19 @@ export default function PurchaseForm({ open, onClose, editing, suppliers, purcha
         ? base44.entities.Purchase.update(editing.id, payload)
         : base44.entities.Purchase.create(payload);
     },
-    onSuccess: () => {
+    onSuccess: async (savedPurchase) => {
+      if (!editing && savedPurchase?.id) {
+        try {
+          await autoInvoiceFromPurchase(savedPurchase, currentUser, {});
+          toast.success('Purchase created — Invoice auto-generated ✅');
+        } catch (e) {
+          toast.warning('Purchase saved but invoice failed: ' + e.message);
+        }
+      } else {
+        toast.success(editing ? 'Purchase updated' : 'Purchase created');
+      }
       qc.invalidateQueries({ queryKey: ['purchases'] });
-      toast.success(editing ? 'Purchase updated' : 'Purchase created');
+      qc.invalidateQueries({ queryKey: ['invoices'] });
       onClose();
     },
     onError: (e) => toast.error(e.message || 'Save failed'),

@@ -642,3 +642,19 @@ CREATE INDEX IF NOT EXISTS idx_investments_status ON investments(status);
 CREATE INDEX IF NOT EXISTS idx_investments_date   ON investments(investment_date DESC);
 
 ALTER PUBLICATION supabase_realtime ADD TABLE investments;
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- SAFE ADDITIVE UPDATES — Run these separately if tables already exist
+-- NO DROP, NO DELETE, NO TRUNCATE
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- Tasks: add notes/progress column if not exists
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS progress_notes TEXT;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS progress_percent INTEGER DEFAULT 0;
+
+-- Ensure assigned_to_email is indexed for fast lookup
+CREATE INDEX IF NOT EXISTS idx_tasks_assigned_email ON tasks(assigned_to_email);
+CREATE INDEX IF NOT EXISTS idx_payroll_email ON payroll(employee_email);
+
+-- Ensure invoices linked_record_ids is GIN-indexed for fast contains search
+CREATE INDEX IF NOT EXISTS idx_invoices_linked_records ON invoices USING GIN (linked_record_ids);

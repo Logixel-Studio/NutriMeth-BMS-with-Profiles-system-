@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import SearchableSelect from '@/components/shared/SearchableSelect';
 import { toast } from 'sonner';
 import { Plus, Trash2, Package } from 'lucide-react';
+import { autoInvoiceFromSale } from '@/lib/autoInvoice';
 import { cn } from '@/lib/utils';
 
 const emptyItem = () => ({ product_id: '', product_name: '', qty: 1, unit_price: 0, cost_per_unit: 0, total: 0 });
@@ -166,10 +167,20 @@ export default function SaleForm({ open, onClose, editing, clients, products }) 
         ? base44.entities.Sale.update(editing.id, payload)
         : base44.entities.Sale.create(payload);
     },
-    onSuccess: () => {
+    onSuccess: async (savedSale) => {
+      if (!editing && savedSale?.id) {
+        try {
+          await autoInvoiceFromSale(savedSale, currentUser, {});
+          toast.success('Sale created — Invoice auto-generated ✅');
+        } catch (e) {
+          toast.warning('Sale saved but invoice failed: ' + e.message);
+        }
+      } else {
+        toast.success(editing ? 'Sale updated' : 'Sale created');
+      }
       qc.invalidateQueries({ queryKey: ['sales'] });
       qc.invalidateQueries({ queryKey: ['products'] });
-      toast.success(editing ? 'Sale updated' : 'Sale created');
+      qc.invalidateQueries({ queryKey: ['invoices'] });
       onClose();
     },
     onError: (e) => toast.error(e.message || 'Save failed'),

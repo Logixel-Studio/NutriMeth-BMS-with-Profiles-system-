@@ -11,9 +11,9 @@ import DueDateBadge from '@/components/shared/DueDateBadge';
 import ConfirmDialog from '@/components/shared/ConfirmDialog';
 import PurchaseTypeForm from '@/components/purchasing/PurchaseTypeForm';
 import PurchaseForm from '@/components/purchasing/PurchaseForm';
-import InvoiceForm from '@/components/invoices/InvoiceForm';
 import { Button } from '@/components/ui/button';
-import { ShoppingCart, DollarSign, CheckCircle, XCircle, AlertCircle, Plus, Pencil, Trash2, Tag, FileText } from 'lucide-react';
+import { ShoppingCart, DollarSign, CheckCircle, XCircle, AlertCircle, Plus, Pencil, Trash2, Tag, FileText, Eye, Printer, Download } from 'lucide-react';
+import { printInvoice, downloadInvoicePDF } from '@/components/invoices/InvoicePDF';
 import { toast } from 'sonner';
 import { usePermissions } from '@/lib/PermissionsContext';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -28,13 +28,13 @@ export default function Purchasing() {
   const [editingType,      setEditingType]      = useState(null);
   const [deleteId,         setDeleteId]         = useState(null);
   const [deleteType,       setDeleteType]       = useState(null);
-  const [invOpen,          setInvOpen]          = useState(false);
-  const [invPrefill,       setInvPrefill]       = useState(null);
   const qc = useQueryClient();
 
   const { data: purchases    = [], isLoading  } = useQuery({ queryKey: ['purchases'],    queryFn: () => base44.entities.Purchase.list() });
   const { data: purchaseTypes = [], isLoading: loadingTypes } = useQuery({ queryKey: ['purchaseTypes'], queryFn: () => base44.entities.PurchaseType.list() });
   const { data: suppliers    = [] }             = useQuery({ queryKey: ['suppliers'],    queryFn: () => base44.entities.Supplier.list() });
+  const { data: invoices     = [] }             = useQuery({ queryKey: ['invoices'],     queryFn: () => base44.entities.Invoice.list() });
+  const getLinkedInvoice = (purchaseId) => invoices.find(inv => inv.linked_record_ids?.includes(purchaseId));
 
   const deletePurchase = useMutation({ mutationFn: (id) => base44.entities.Purchase.delete(id), onSuccess: () => { qc.invalidateQueries({ queryKey: ['purchases'] }); toast.success('Deleted'); setDeleteId(null); } });
   const deleteTypeMut  = useMutation({ mutationFn: (id) => base44.entities.PurchaseType.delete(id), onSuccess: () => { qc.invalidateQueries({ queryKey: ['purchaseTypes'] }); toast.success('Type deleted'); setDeleteType(null); } });
@@ -44,32 +44,7 @@ export default function Purchasing() {
   const unpaidCount = purchases.filter(p => p.payment_status === 'unpaid').length;
   const partialCount = purchases.filter(p => p.payment_status === 'partial').length;
 
-  const openCreateInvoice = (row) => {
-    const pItems = row.items?.length ? row.items : [{
-      purchase_type_id: row.purchase_type_id, purchase_type_name: row.purchase_type_name,
-      qty: row.qty, unit_price: row.unit_price, total: row.total,
-    }];
-    setInvPrefill({
-      _prefill: true,
-      invoice_type:   'supplier',
-      party_id:       row.supplier_id,
-      party_name:     row.supplier_name,
-      party_phone:    row.supplier_phone || '',
-      party_address:  row.supplier_address || '',
-      invoice_date:   new Date().toISOString().slice(0, 10),
-      due_date:       row.due_date || '',
-      payment_status: row.payment_status || 'unpaid',
-      paid_amount:    row.paid_amount || 0,
-      linked_record_ids: [row.id],
-      items: pItems.map(it => ({
-        description: it.purchase_type_name || it.description || '',
-        qty:         it.qty,
-        unit_price:  it.unit_price,
-        total:       Number(it.qty) * Number(it.unit_price),
-      })),
-    });
-    setInvOpen(true);
-  };
+
 
   const purchaseColumns = [
     { key: 'supplier_name',      label: 'Supplier', render: v => <span className="font-medium">{v}</span> },
@@ -148,13 +123,22 @@ export default function Purchasing() {
           <div><p className="text-xs text-muted-foreground">Status</p><StatusBadge status={row.payment_status} /></div>
           {row.due_date && <div><p className="text-xs text-muted-foreground">Due</p><DueDateBadge dueDate={row.due_date} paymentStatus={row.payment_status} /></div>}
         </div>
-        <div className="flex justify-end gap-2">
-          {canCreate('invoices') && (
-            <Button size="sm" variant="outline" className="gap-1.5 text-blue-600 border-blue-200 hover:bg-blue-50" onClick={() => openCreateInvoice(row)}>
-              <FileText className="w-3.5 h-3.5" /> Create Invoice
-            </Button>
-          )}
-        </div>
+        {/* Linked invoice actions */}
+        {(() => { const linkedInv = getLinkedInvoice(row.id); return linkedInv ? (
+          <div className="flex items-center justify-between bg-muted/30 rounded-lg px-4 py-2.5 border border-border/60">
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-primary" />
+              <span className="text-sm font-medium">{linkedInv.invoice_number}</span>
+              <span className="text-xs text-muted-foreground">· {linkedInv.grand_total}</span>
+            </div>
+            <div className="flex gap-1">
+              <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => { setViewInv(linkedInv); setEditInvOpen(true); }}><Eye className="w-3.5 h-3.5" /> View</Button>
+              <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => { try { printInvoice(linkedInv); } catch(e) { toast.error('Print failed'); } }}><Printer className="w-3.5 h-3.5" /> Print</Button>
+              <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => { try { downloadInvoicePDF(linkedInv); } catch(e) { toast.error('PDF failed'); } }}><Download className="w-3.5 h-3.5" /> PDF</Button>
+              <Button size="sm" variant="ghost" className="h-7 gap-1.5 text-xs" onClick={() => { setViewInv(linkedInv); setEditInvOpen(true); }}><Pencil className="w-3.5 h-3.5" /> Edit</Button>
+            </div>
+          </div>
+        ) : null; })()} 
         <AuditInfo record={row} />
       </div>
     );
@@ -190,7 +174,7 @@ export default function Purchasing() {
 
       <PurchaseTypeForm open={typeFormOpen} onClose={() => { setTypeFormOpen(false); setEditingType(null); }} editing={editingType} />
       <PurchaseForm open={purchaseFormOpen} onClose={() => { setPurchaseFormOpen(false); setEditing(null); }} editing={editing} suppliers={suppliers} purchaseTypes={purchaseTypes} />
-      <InvoiceForm open={invOpen} onClose={() => { setInvOpen(false); setInvPrefill(null); }} editing={invPrefill} onSaved={() => qc.invalidateQueries({ queryKey: ['invoices'] })} />
+
       <ConfirmDialog open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={() => deletePurchase.mutate(deleteId)} />
       <ConfirmDialog open={!!deleteType} onClose={() => setDeleteType(null)} onConfirm={() => deleteTypeMut.mutate(deleteType)} />
     </div>
