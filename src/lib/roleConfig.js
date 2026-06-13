@@ -8,7 +8,7 @@ import {
   Warehouse, UserSquare2, ClipboardList, DollarSign, CheckSquare,
   CalendarOff, Shield, Building2, BarChart3, FileText, MapPin,
   Bell, Activity, Navigation, Factory, Beaker, GitBranch,
-  Layers, FolderOpen, Zap, Globe, ClipboardCheck, KeyRound, ScrollText, Target, PiggyBank
+  Layers, FolderOpen, Zap, Globe, ClipboardCheck, KeyRound, ScrollText, Target
 } from 'lucide-react';
 
 export const ROLES = {
@@ -57,7 +57,7 @@ export const NAV_GROUPS = {
     {
       label: 'Management',
       items: [
-        { path: '/user-management', label: 'User Management', icon: Users },  
+        { path: '/user-management', label: 'User Management', icon: Users },
         { path: '/office-locations', label: 'GPS Locations', icon: Navigation },
         { path: '/settings', label: 'Company Settings', icon: Building2 },
       ]
@@ -72,7 +72,6 @@ export const NAV_GROUPS = {
         { path: '/expenses', label: 'Expenses', icon: Receipt },
         { path: '/payments', label: 'Payments', icon: CreditCard },
         { path: '/invoices', label: 'Invoices', icon: ScrollText },
-        { path: '/investments', label: 'Investments', icon: PiggyBank },
       ]
     },
     {
@@ -120,7 +119,6 @@ export const NAV_GROUPS = {
         { path: '/expenses', label: 'Expenses', icon: Receipt },
         { path: '/payments', label: 'Payments', icon: CreditCard },
         { path: '/invoices', label: 'Invoices', icon: ScrollText },
-        { path: '/investments', label: 'Investments', icon: PiggyBank },
       ]
     },
     {
@@ -150,7 +148,7 @@ export const NAV_GROUPS = {
     {
       label: 'System',
       items: [
-        { path: '/user-management', label: 'User Management', icon: Shield },
+        // { path: '/user-management', label: 'User Management', icon: Shield },
         { path: '/settings', label: 'Settings', icon: Settings },
         { path: '/profile', label: 'Profile', icon: UserCircle },
       ]
