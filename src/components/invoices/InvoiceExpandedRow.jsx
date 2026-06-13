@@ -150,13 +150,13 @@ export default function InvoiceExpandedRow({
           </Button>
         )}
 
-        {(canExport !== false) && (
+        {/* {(canExport !== false) && (
           <Button variant="outline" size="sm" className="gap-1.5"
             onClick={handleDownload}>
             <Download className="w-3.5 h-3.5" />
             {row.download_count > 0 ? 'Re-Download PDF' : 'Download PDF'}
           </Button>
-        )}
+        )} */}
 
         {canUpdate && (
           <Button variant="outline" size="sm" className="gap-1.5"

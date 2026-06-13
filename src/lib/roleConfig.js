@@ -57,7 +57,7 @@ export const NAV_GROUPS = {
     {
       label: 'Management',
       items: [
-        { path: '/user-management', label: 'User Management', icon: Users },
+        { path: '/user-management', label: 'User Management', icon: Users },  
         { path: '/office-locations', label: 'GPS Locations', icon: Navigation },
         { path: '/settings', label: 'Company Settings', icon: Building2 },
       ]
